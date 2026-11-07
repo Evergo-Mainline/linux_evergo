@@ -30,7 +30,11 @@ int __attribute__((weak)) mtk_wcn_stpgps_drv_init()
 
 int do_gps_drv_init(int chip_id)
 {
-	int i_ret = -1;
+	/* Same as do_bluetooth_drv_init(): an unbuilt optional module is not a
+	 * failure.  No GPS driver exists in this tree yet, so returning -1 only
+	 * poisoned the aggregate return of do_connectivity_driver_init(). */
+	int i_ret = 0;
+
 #ifdef CONFIG_MTK_COMBO_GPS
 	WMT_DETECT_PR_INFO("start to do gps driver init\n");
 	i_ret = mtk_wcn_stpgps_drv_init();

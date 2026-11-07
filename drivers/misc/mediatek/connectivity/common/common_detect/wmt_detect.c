@@ -129,8 +129,25 @@ static long wmt_detect_unlocked_ioctl(struct file *filp, unsigned int cmd, unsig
 
 	case COMBO_IOCTL_DO_MODULE_INIT:
 #if (MTK_WCN_REMOVE_KO)
+		/*
+		 * Actually deinit the SDIO-DETECT driver here, which is what the
+		 * comment below has always claimed.  sdio_detect_init() ran at
+		 * module load and registered a driver *also* named
+		 * "mtk_sdio_client"; hif_sdio_init() then tried to register that
+		 * same name and was refused, which aborted the whole
+		 * connectivity bring-up:
+		 *
+		 *   Error: Driver 'mtk_sdio_client' is already registered, aborting...
+		 *   hif_sdio_init:sdio_register_driver() fail, ret=-16
+		 *   do_common_drv_init:common driver init finish:-16
+		 *   do_connectivity_driver_init(43):do common driver not ready, ret:-16
+		 *
+		 * sdio_detect_exit() only unregisters, it does not touch a claimed
+		 * function, so this is safe even when detect never matched a card.
+		 */
 		/*deinit SDIO-DETECT module */
 		WMT_DETECT_PR_INFO("built-in mode\n");
+		sdio_detect_exit();
 		retval = do_connectivity_driver_init(arg);
 #else
 		WMT_DETECT_PR_INFO("kernel object mode\n");
