@@ -161,6 +161,13 @@
 #define AW8697_CHIP_ID			0x97
 #define AW8697_CHIP_ID_8695		0x95
 #define AW8697_CHIP_ID_86907		0x04
+/*
+ * The evergo sample answers 0x82 on AW8697_REG_ID.  The vendor driver
+ * for this board never checks the id at all -- it just probes and uses
+ * the chip -- and the part works, so refusing it here only disabled
+ * the haptics ("aw8697 1-005a: unsupported chip id 0x82" every boot).
+ */
+#define AW8697_CHIP_ID_EVERGO		0x82
 
 #define AW8697_DEFAULT_F0_PRE		1700
 #define AW8697_DEFAULT_F0_COEFF		260
@@ -447,6 +454,9 @@ static int aw8697_detect(struct aw8697 *h)
 	case AW8697_CHIP_ID_8695:
 	case AW8697_CHIP_ID_86907:
 		dev_info(h->dev, "detected AW869X chip id 0x%02x\n", id);
+		return 0;
+	case AW8697_CHIP_ID_EVERGO:
+		dev_info(h->dev, "detected AW869X chip id 0x%02x (evergo)\n", id);
 		return 0;
 	default:
 		dev_err(h->dev, "unsupported chip id 0x%02x\n", id);
