@@ -29,7 +29,8 @@
 #include <linux/proc_fs.h>
 #include <linux/memblock.h>
 #include <linux/of_fdt.h>
-#include <linux/libfdt.h>      /* B': read /memory from the bootloader tree */
+#include <linux/libfdt.h>
+#include <linux/evergo_lcm.h>      /* B': read /memory from the bootloader tree */
 #include <linux/of.h>           /* of_read_number() for the /memory reg */
 #include <linux/firmware.h>
 #include <linux/efi.h>
@@ -967,6 +968,14 @@ void evergo_mark(const char *text)
 static u64 evergo_lk_dram_end __initdata;
 
 /*
+ * Panel module this unit actually carries, read out of LK's /chosen below.
+ * The DTS cannot answer this: the kernel boots the embedded tree, so panel@0
+ * describes whoever wrote the DTS, not the hardware in hand.
+ */
+enum evergo_lcm_id evergo_lcm;
+EXPORT_SYMBOL_GPL(evergo_lcm);
+
+/*
  * The bootloader's /reserved-memory, read back before the embedded tree
  * replaces it.
  *
@@ -1011,6 +1020,22 @@ static int evergo_lk_mblocks_nr __initdata;
 #define EVERGO_LK_FDT_MAX   (192 * 1024)
 #define EVERGO_LK_FDT_STRUCT_OFF   8    /* off_dt_struct in the FDT header */
 
+/* memmem() is not declared for module/builtin use; this is the whole of it. */
+static bool __init evergo_blob_has(const void *hay, size_t hlen, const char *needle)
+{
+	size_t nlen = strlen(needle);
+	const char *h = hay;
+
+	if (hlen < nlen)
+		return false;
+
+	for (; hlen >= nlen; h++, hlen--)
+		if (!memcmp(h, needle, nlen))
+			return true;
+
+	return false;
+}
+
 static void __init evergo_read_lk_dram(phys_addr_t fdt_phys)
 {
 	u32 *p, *end;
@@ -1020,6 +1045,7 @@ static void __init evergo_read_lk_dram(phys_addr_t fdt_phys)
 	int depth = 0, implausible = 0, nodes = 0;
 	int in_mem = 0;
 	int rm_depth = 0;	/* depth of /reserved-memory, 0 = not inside it */
+	int in_chosen = 0;
 
 	evergo_mark("EVB62:D1-probe\n");
 	pr_info("evergo: lk dtb phys=%pa\n", &fdt_phys);
@@ -1073,12 +1099,14 @@ static void __init evergo_read_lk_dram(phys_addr_t fdt_phys)
 				  (!strcmp(nm, "memory") || !strncmp(nm, "memory@", 7)));
 			if (depth == 2 && !strcmp(nm, "reserved-memory"))
 				rm_depth = depth;
+			in_chosen = (depth == 2 && !strcmp(nm, "chosen"));
 			p = (u32 *)(((unsigned long)p + n + 1 + 3) & ~3UL);
 		} else if (tag == FDT_END_NODE) {
 			if (rm_depth && depth == rm_depth)
 				rm_depth = 0;
 			depth--;
 			in_mem = 0;
+			in_chosen = 0;
 		} else if (tag == FDT_PROP) {
 			u32 plen = be32_to_cpup((__be32 *)p);
 
@@ -1091,6 +1119,19 @@ static void __init evergo_read_lk_dram(phys_addr_t fdt_phys)
 			 * reg is the sixth on this board, not the second.  A 16-byte
 			 * property whose base cell pair decodes to 0x40000000 is reg.
 			 */
+			/*
+			 * LK prints "we will use lcm: <name>" after probing the candidate
+			 * panel modules, and puts the same name in its /chosen.  Property
+			 * names are out of reach (see above), but the values are not, so
+			 * look for either module's name anywhere in /chosen.
+			 */
+			if (in_chosen && plen && plen < 4096) {
+				if (evergo_blob_has(p, plen, "k16a_42_02_0b"))
+					evergo_lcm = EVERGO_LCM_CSOT;
+				else if (evergo_blob_has(p, plen, "k16a_36_02_0a"))
+					evergo_lcm = EVERGO_LCM_TIANMA;
+			}
+
 			/*
 			 * Same shape-based identification as above: the strings block is
 			 * out of reach, so a 16-byte property on a child of
@@ -1138,6 +1179,10 @@ static void __init evergo_read_lk_dram(phys_addr_t fdt_phys)
 
 	pr_info("evergo: lk /reserved-memory: %d block(s) from %d nodes\n",
 		evergo_lk_mblocks_nr, nodes);
+	pr_info("evergo: panel module: %s\n",
+		evergo_lcm == EVERGO_LCM_CSOT ? "CSOT (k16a_42_02_0b_vdo)" :
+		evergo_lcm == EVERGO_LCM_TIANMA ? "Tianma (k16a_36_02_0a_vdo)" :
+		"unknown -- lk did not name one in /chosen");
 	if (!rm_depth && !evergo_lk_mblocks_nr) {
 		evergo_mark("EVB62:D4-norm\n");
 		pr_warn("evergo: the lk dtb has no /reserved-memory, keeping the dts table only\n");

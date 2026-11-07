@@ -16,6 +16,7 @@
  *
  */
 #include <linux/kernel.h>
+#include <linux/evergo_lcm.h>
 #include <linux/module.h>
 #include <linux/interrupt.h>
 #include <linux/irq.h>
@@ -1708,12 +1709,32 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 	char firmware_name[32];
 	struct device_node *panel_np;
 
-	panel_np = of_find_compatible_node(NULL, NULL, "k16a_36_02_0a_vdo,lcm");
-	if (panel_np) {
+	/*
+	 * Ask the bootloader first.  evergo_lcm is filled in by setup.c from the
+	 * tree LK hands over, where it records the module it actually probed
+	 * ("we will use lcm: <name>").  That is ground truth; the compatible
+	 * string below is only what whoever wrote this DTS believed, and the board
+	 * ships both modules against the same node.
+	 */
+	switch (evergo_lcm) {
+	case EVERGO_LCM_TIANMA:
+		NVT_LOG("lcm from lk: tianma\n");
 		scnprintf(firmware_name, sizeof(firmware_name), "novatek_ts_fw.bin");
-		of_node_put(panel_np);
-	} else {
+		break;
+	case EVERGO_LCM_CSOT:
+		NVT_LOG("lcm from lk: csot\n");
 		scnprintf(firmware_name, sizeof(firmware_name), "novatek_ts_ct_fw.bin");
+		break;
+	default:
+		NVT_LOG("lcm unknown to lk, falling back to the dts\n");
+		panel_np = of_find_compatible_node(NULL, NULL, "k16a_36_02_0a_vdo,lcm");
+		if (panel_np) {
+			scnprintf(firmware_name, sizeof(firmware_name), "novatek_ts_fw.bin");
+			of_node_put(panel_np);
+		} else {
+			scnprintf(firmware_name, sizeof(firmware_name), "novatek_ts_ct_fw.bin");
+		}
+		break;
 	}
 #if ((TOUCH_KEY_NUM > 0) || WAKEUP_GESTURE)
 	int32_t retry = 0;
