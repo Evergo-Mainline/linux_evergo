@@ -27,6 +27,7 @@
 #include <linux/proc_fs.h>
 #include <linux/memblock.h>
 #include <linux/of_fdt.h>
+#include <linux/of.h>
 #include <linux/firmware.h>
 #include <linux/efi.h>
 #include <linux/psci.h>
@@ -279,6 +280,312 @@ u64 cpu_logical_map(unsigned int cpu)
 	return __cpu_logical_map[cpu];
 }
 
+
+#ifdef CONFIG_MT6833_EVERGO_FORCE_DT
+/* flattened device tree tags (not exported by the kernel headers) */
+#define FDT_MAGIC       0xd00dfeed
+#define FDT_BEGIN_NODE  1
+#define FDT_END_NODE    2
+#define FDT_PROP        3
+
+/*
+ * B': the DRAM size comes from the bootloader, everything else from us.
+ *
+ * The kernel keeps using the tree built into it -- that one carries every node
+ * this port needs.  Swapping in the LK's tree loses all of them, and its dtbo
+ * overlay cannot be applied to ours either: 38 of the 52 symbols that overlay
+ * needs do not exist here, and fdt_overlay_apply() is atomic.
+ *
+ * The capacity, however, cannot be baked in -- one image has to run on the
+ * 4/6/8/12 GiB units.  The only place the real size is known is the tree the
+ * bootloader composed, so read /memory out of that one before switching over,
+ * then trim whatever above it the embedded tree over-declared.
+ */
+#define EVERGO_DRAM_BASE    0x40000000ULL
+
+/*
+ * Where the bootloader says DRAM ends.
+ *
+ * The embedded tree has to declare *some* size, and it declares the largest
+ * variant (8 GiB).  Declaring less than a unit actually has simply throws that
+ * RAM away -- memblock can only learn about memory described somewhere -- while
+ * declaring more only hands out addresses that do not exist.  So the tree
+ * declares 8 GiB and whatever it over-declared is dropped again below, which is
+ * what lets a single image serve the 4/6/8 GiB units.
+ */
+static u64 evergo_lk_dram_end __initdata;
+
+/*
+ * The bootloader's /reserved-memory, read back before the embedded tree
+ * replaces it.
+ *
+ * LK carves DRAM out for the modem, SCP, SPM, RKP, MCUPM and the TEE, and puts
+ * a few of those at addresses that depend on how much DRAM it trained -- the
+ * RAM-dump window and the per-rank markers move between the 4/6/8 GiB units of
+ * this board.  A static table in the DTS can only describe one of them, so the
+ * table in mt6833-xiaomi-evergo.dts stays as the baseline and whatever LK
+ * actually reserved is added on top here.  Reserving the union is safe: an
+ * entry that describes DRAM this unit does not have simply marks an address
+ * that memblock never knew about.
+ */
+#define EVERGO_LK_MAX_MBLOCK	64
+
+struct evergo_lk_mblock {
+	u64	base;
+	u64	size;
+};
+
+static struct evergo_lk_mblock evergo_lk_mblocks[EVERGO_LK_MAX_MBLOCK] __initdata;
+static int evergo_lk_mblocks_nr __initdata;
+
+/*
+ * Window over the bootloader's tree.
+ *
+ * LK does not hand over its own 170 KiB lk_main_dtb -- it applies its dtbo
+ * first and the result measures 285,941 bytes (b382 measured it).  That is past
+ * what early_ioremap() will map in one go, and 256 KiB -- nominally still under
+ * the 260 KiB ceiling -- kills the boot outright (b383).
+ *
+ * In the raw LK tree and in the boot.img copy /memory sits at blob offset
+ * 0x2384 (~9 KiB), but LK re-serialises the whole tree when it applies its
+ * dtbo, so the layout of the 285,941-byte tree it actually hands over is not
+ * the same -- a 16 KiB window found nothing (b386 "D3-nomem").
+ *
+ * The window is therefore 192 KiB, which b382 proved can be mapped, and the
+ * walk below is hand-rolled rather than libfdt's: fdt_offset_ptr() bounds-checks
+ * against fdt_totalsize() (285,941) instead of what was actually mapped, so it
+ * reads past the window and takes the kernel down (b385).  The hand-written
+ * walk below never leaves the window.
+ */
+#define EVERGO_LK_FDT_MAX   (192 * 1024)
+#define EVERGO_LK_FDT_STRUCT_OFF   8    /* off_dt_struct in the FDT header */
+
+static void __init evergo_read_lk_dram(phys_addr_t fdt_phys)
+{
+	u32 *p, *end;
+	u32 struct_off, strings_off;
+	u64 base, sz;
+	void *fdt;
+	int depth = 0, implausible = 0, nodes = 0;
+	int in_mem = 0;
+	int rm_depth = 0;	/* depth of /reserved-memory, 0 = not inside it */
+
+	pr_info("evergo: lk dtb phys=%pa\n", &fdt_phys);
+
+	if (!fdt_phys)
+		return;
+
+	fdt = early_memremap(fdt_phys, EVERGO_LK_FDT_MAX);
+	if (!fdt) {
+		return;
+	}
+
+	if (be32_to_cpup((__be32 *)fdt) != FDT_MAGIC) {
+		goto out;
+	}
+
+	struct_off  = be32_to_cpup((__be32 *)((char *)fdt + 8));
+	strings_off = be32_to_cpup((__be32 *)((char *)fdt + 12));
+
+	pr_info("evergo: lk dtb struct=%#x strings=%#x totalsize=%u\n",
+		struct_off, strings_off, be32_to_cpup((__be32 *)((char *)fdt + 4)));
+
+	p = (u32 *)((char *)fdt + struct_off);
+	end = (u32 *)((char *)fdt + EVERGO_LK_FDT_MAX);
+
+	/*
+	 * Walk the structure block by hand (see the note above): libfdt bounds
+	 * against fdt_totalsize() rather than the mapped window and reads past it.
+	 * Property names come from the strings block, which sits at ~153 KiB and
+	 * therefore inside the window.
+	 */
+	while (p < end) {
+		u32 tag = be32_to_cpup((__be32 *)p++);
+
+		if (tag == FDT_BEGIN_NODE) {
+			const char *nm = (const char *)p;
+			size_t n = strlen(nm);
+
+			depth++;
+			nodes++;
+			/*
+			 * The root node itself has an empty name and takes depth 1, so its
+			 * children -- /memory, /chosen, /reserved-memory -- are depth 2.
+			 * Testing depth 1 here matched only the root and never a child,
+			 * which is why 907 nodes walked and nothing was found (b388).
+			 */
+			in_mem = (depth == 2 &&
+				  (!strcmp(nm, "memory") || !strncmp(nm, "memory@", 7)));
+			if (depth == 2 && !strcmp(nm, "reserved-memory"))
+				rm_depth = depth;
+			p = (u32 *)(((unsigned long)p + n + 1 + 3) & ~3UL);
+		} else if (tag == FDT_END_NODE) {
+			if (rm_depth && depth == rm_depth)
+				rm_depth = 0;
+			depth--;
+			in_mem = 0;
+		} else if (tag == FDT_PROP) {
+			u32 plen = be32_to_cpup((__be32 *)p);
+
+			p += 2;
+
+			/*
+			 * No property names: the strings block sits at 0x3f4a4 (259 KiB),
+			 * beyond the mapped window.  Identify reg by shape and content
+			 * instead of position: LK prepends four properties of its own, so
+			 * reg is the sixth on this board, not the second.  A 16-byte
+			 * property whose base cell pair decodes to 0x40000000 is reg.
+			 */
+			/*
+			 * Same shape-based identification as above: the strings block is
+			 * out of reach, so a 16-byte property on a child of
+			 * /reserved-memory can only be its reg (two address cells, two
+			 * size cells).  compatible is a string, no-map is empty and
+			 * phandle is one cell, so nothing else matches.
+			 */
+			if (rm_depth && depth == rm_depth + 1 && plen == 16) {
+				base = of_read_number((const __be32 *)p, 2);
+				sz = of_read_number((const __be32 *)p + 2, 2);
+
+				if (sz && base < (1ULL << 40) && base + sz <= (1ULL << 40) &&
+				    evergo_lk_mblocks_nr < EVERGO_LK_MAX_MBLOCK) {
+					evergo_lk_mblocks[evergo_lk_mblocks_nr].base = base;
+					evergo_lk_mblocks[evergo_lk_mblocks_nr].size = sz;
+					evergo_lk_mblocks_nr++;
+				}
+			}
+
+			if (in_mem && plen == 16 && !evergo_lk_dram_end) {
+				base = of_read_number((const __be32 *)p, 2);
+				sz = of_read_number((const __be32 *)p + 2, 2);
+				if (base == EVERGO_DRAM_BASE && sz) {
+					if (sz < 0x100000000ULL) {
+						implausible = 1;
+						break;
+					}
+					evergo_lk_dram_end = base + sz;
+					pr_info("evergo: bootloader reports %llu MiB of DRAM\n",
+						sz >> 20);
+				}
+			}
+			p = (u32 *)(((unsigned long)p + plen + 3) & ~3UL);
+		} else {
+			break;
+		}
+	}
+
+	if (!evergo_lk_dram_end && !implausible) {
+		pr_info("evergo: no /memory in the lk dtb (%d nodes walked)\n", nodes);
+	}
+
+	pr_info("evergo: lk /reserved-memory: %d block(s) from %d nodes\n",
+		evergo_lk_mblocks_nr, nodes);
+	if (!rm_depth && !evergo_lk_mblocks_nr) {
+		pr_warn("evergo: the lk dtb has no /reserved-memory, keeping the dts table only\n");
+	}
+out:
+	early_memunmap(fdt, EVERGO_LK_FDT_MAX);
+}
+
+/*
+ * Both trees were scanned, so memblock now spans their union -- i.e. the 8 GiB
+ * the embedded tree declares.  Cut it back to what the bootloader actually
+ * trained.
+ */
+static void __init evergo_trim_dram(void)
+{
+	u64 end = memblock_end_of_DRAM();
+
+	if (!evergo_lk_dram_end || end <= evergo_lk_dram_end)
+		return;
+
+	pr_info("evergo: trimming %llu MiB the embedded tree over-declared\n",
+		(end - evergo_lk_dram_end) >> 20);
+	memblock_remove(evergo_lk_dram_end, end - evergo_lk_dram_end);
+}
+
+/*
+ * Add whatever the bootloader reserved on top of the table compiled into the
+ * embedded tree.
+ *
+ * This is what makes one image fit every DRAM variant of this board: the DTS
+ * carries the layout measured on one unit, and anything this unit's LK placed
+ * somewhere else -- the RAM-dump window, the per-rank markers, the modem
+ * mblocks -- is picked up here at run time.  Reserving a range twice is
+ * harmless; reserving one that describes absent DRAM just marks an address
+ * memblock never had.
+ *
+ * no-map matters: these ranges belong to firmware that keeps running, so they
+ * must not be mapped into the linear map either.  memblock_mark_nomap() requires
+ * the range to be reserved first, hence the order.
+ */
+static void __init evergo_apply_lk_reserved(void)
+{
+	phys_addr_t kstart = __pa_symbol(_text);
+	phys_addr_t kend = __pa_symbol(_end);
+	u64 dram_end = evergo_lk_dram_end ? evergo_lk_dram_end
+					  : EVERGO_DRAM_BASE + (8ULL << 30);
+	int i, added = 0;
+
+	for (i = 0; i < evergo_lk_mblocks_nr; i++) {
+		u64 base = evergo_lk_mblocks[i].base;
+		u64 size = evergo_lk_mblocks[i].size;
+		u64 end = base + size;
+
+		/*
+		 * Filter hard before touching memblock.  reg is identified by shape
+		 * alone (the strings block is out of reach), so a mis-parse is
+		 * possible, and handing memblock -- worse, memblock_mark_nomap() -- a
+		 * range that covers the running kernel or a large part of DRAM kills
+		 * the boot inside paging_init() with nothing printed at all (b398).
+		 */
+		if (base < EVERGO_DRAM_BASE || !size || size > (1ULL << 29) ||
+		    end < base || end > dram_end) {
+			continue;
+		}
+
+		/* the kernel is running from here -- never reserve or unmap it */
+		if (base < kend && end > kstart) {
+			continue;
+		}
+
+		/*
+		 * The DTS table already reserved and nomap'd its ranges; adding them
+		 * again buys nothing, and memblock_is_reserved() on the base address is
+		 * enough to tell.
+		 */
+		if (memblock_is_reserved(base)) {
+			continue;
+		}
+
+		/*
+		 * Remove rather than reserve+nomap.
+		 *
+		 * memblock_mark_nomap() only suppresses the linear mapping; it does not
+		 * keep the range out of the allocator.
+		 * early_pgtable_alloc() allocates with
+		 * memblock_phys_alloc_range(..., MEMBLOCK_ALLOC_NOLEAKTRACE), which
+		 * filters reserved ranges but not NOMAP ones, so a page-table page could
+		 * be handed out of a nomap range -- and then the kernel faults the
+		 * moment it touches it through __va(), with the linear mapping
+		 * deliberately absent.  That is what killed paging_init() (b400:
+		 * the last mark was EVM:SA2-paging and the new 128 MiB range at
+		 * 0x49100000 was in the pool).
+		 *
+		 * Taking the range out of memblock.memory does both jobs at once: it
+		 * can no longer be allocated and it is no longer mapped.
+		 */
+		if (memblock_remove(base, size)) {
+			continue;
+		}
+		added++;
+	}
+
+	pr_info("evergo: kept %d of %d bootloader reservations\n",
+		added, evergo_lk_mblocks_nr);
+}
+#endif
+
 void __init __no_sanitize_address setup_arch(char **cmdline_p)
 {
 	setup_initial_init_mm(_text, _etext, _edata, _end);
@@ -291,6 +598,9 @@ void __init __no_sanitize_address setup_arch(char **cmdline_p)
 	early_ioremap_init();
 
 #ifdef CONFIG_MT6833_EVERGO_FORCE_DT
+	/* read DRAM size / reserved ranges out of the LK tree before we swap it */
+	evergo_read_lk_dram(__fdt_pointer);
+
 	/*
 	 * Bring-up aid: the LK of the evergo composes the device tree itself
 	 * (its display/lcm code needs the vendor panel data), so the one it
@@ -312,6 +622,9 @@ void __init __no_sanitize_address setup_arch(char **cmdline_p)
 #endif
 
 	setup_machine_fdt(__fdt_pointer);
+#ifdef CONFIG_MT6833_EVERGO_FORCE_DT
+	evergo_trim_dram();
+#endif
 
 	/*
 	 * Initialise the static keys early as they may be enabled by the
@@ -352,6 +665,17 @@ void __init __no_sanitize_address setup_arch(char **cmdline_p)
 	}
 
 	arm64_memblock_init();
+
+	/*
+	 * Only now, after arm64_memblock_init() has folded the embedded tree's
+	 * reserved-memory into memblock.  Doing this earlier is not equivalent:
+	 * the extra memblock_reserve() calls push memblock.reserved into a new
+	 * array, the allocation for that array splits memblock.memory, and the
+	 * DTS nodes that follow can then no longer be marked no-map.
+	 */
+#ifdef CONFIG_MT6833_EVERGO_FORCE_DT
+	evergo_apply_lk_reserved();
+#endif
 
 	paging_init();
 
