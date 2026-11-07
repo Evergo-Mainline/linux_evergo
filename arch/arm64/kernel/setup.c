@@ -618,11 +618,22 @@ static void evergo_wdt_report(void)
  * second call is a no-op if the first one managed to map, and a retry if the
  * vmalloc area was not ready that early.
  */
+#ifdef CONFIG_MT6833_EVERGO_FORCE_DT
+static void __init evergo_report_lk_reserved(void);
+#endif
+
 static int __init evergo_plog_initcall(void)
 {
+	static bool reported;
+
 	evergo_plog_open();
-	if (evergo_plog)
+	if (evergo_plog && !reported) {
+		reported = true;
 		evergo_wdt_report();
+#ifdef CONFIG_MT6833_EVERGO_FORCE_DT
+		evergo_report_lk_reserved();
+#endif
+	}
 	return 0;
 }
 early_initcall(evergo_plog_initcall);
@@ -999,6 +1010,37 @@ static struct evergo_lk_mblock evergo_lk_mblocks[EVERGO_LK_MAX_MBLOCK] __initdat
 static int evergo_lk_mblocks_nr __initdata;
 
 /*
+ * What happened to each of them.  The breadcrumbs carry the same thing, but
+ * they are capped at EVERGO_MARK_LIMIT and share a ring that rotates its
+ * slots, so on any boot that reaches userspace they are gone by the time the
+ * log is read back.  Keeping the answers here lets them be replayed into the
+ * pstore text log, which is neither capped nor rotated away.
+ */
+enum evergo_lk_outcome {
+	EVERGO_LK_KEPT,         /* taken out of memblock.memory right here */
+	EVERGO_LK_HAVE,         /* the embedded tree already covered it */
+	EVERGO_LK_SKIP_BELOW,   /* below the DRAM base */
+	EVERGO_LK_SKIP_ZERO,    /* zero size, i.e. a failed parse */
+	EVERGO_LK_SKIP_BIG,     /* larger than 512 MiB, i.e. a failed parse */
+	EVERGO_LK_SKIP_PAST,    /* past the DRAM end this unit reported */
+	EVERGO_LK_KERNEL,       /* covers the running kernel */
+	EVERGO_LK_NOMEM,        /* not part of memblock.memory */
+};
+
+static const char * const evergo_lk_outcome_name[] = {
+	"kept",
+	"have",
+	"skip-below-dram",
+	"skip-zero-size",
+	"skip-over-512m",
+	"skip-past-dram",
+	"skip-kernel",
+	"no-such-memory",
+};
+
+static u8 evergo_lk_outcome[EVERGO_LK_MAX_MBLOCK] __initdata;
+
+/*
  * Window over the bootloader's tree.
  *
  * LK does not hand over its own 170 KiB lk_main_dtb -- it applies its dtbo
@@ -1209,6 +1251,34 @@ static void __init evergo_trim_dram(void)
 }
 
 /*
+ * Is this address inside a region the embedded tree already marked NOMAP?
+ *
+ * A no-map reserved-memory node never reaches memblock.reserved:
+ * early_init_dt_reserve_memory() calls memblock_mark_nomap() for it instead of
+ * memblock_reserve(), and NOMAP is a flag on the *memory* region.  So
+ * memblock_is_reserved() answers false for every no-map node, which is exactly
+ * why all 29 of them in this board's DTS used to fall through to
+ * memblock_remove() below.  That was harmless -- removing is at least as
+ * strong as nomapping -- but it made the run-time report read as if the
+ * embedded tree covered nothing.
+ *
+ * A NOMAP range is already out of the linear map and the allocator skips it
+ * (mm/memblock.c, should_skip_region()), so there is nothing left to do for
+ * one.
+ */
+static bool __init evergo_is_nomapped(u64 base)
+{
+	struct memblock_region *r;
+
+	for_each_mem_region(r) {
+		if (base >= r->base && base < r->base + r->size)
+			return memblock_is_nomap(r);
+	}
+
+	return false;
+}
+
+/*
  * Add whatever the bootloader reserved on top of the table compiled into the
  * embedded tree.
  *
@@ -1220,8 +1290,8 @@ static void __init evergo_trim_dram(void)
  * memblock never had.
  *
  * no-map matters: these ranges belong to firmware that keeps running, so they
- * must not be mapped into the linear map either.  memblock_mark_nomap() requires
- * the range to be reserved first, hence the order.
+ * must not be mapped into the linear map either.  memblock_remove() takes care
+ * of both the allocator and the linear map; see the note further down.
  */
 static void __init evergo_apply_lk_reserved(void)
 {
@@ -1236,69 +1306,100 @@ static void __init evergo_apply_lk_reserved(void)
 		u64 base = evergo_lk_mblocks[i].base;
 		u64 size = evergo_lk_mblocks[i].size;
 		u64 end = base + size;
+		enum evergo_lk_outcome why;
 
 		/*
 		 * Filter hard before touching memblock.  reg is identified by shape
 		 * alone (the strings block is out of reach), so a mis-parse is
-		 * possible, and handing memblock -- worse, memblock_mark_nomap() -- a
-		 * range that covers the running kernel or a large part of DRAM kills
-		 * the boot inside paging_init() with nothing printed at all (b398).
+		 * possible, and handing memblock a range that covers the running
+		 * kernel or a large part of DRAM kills the boot inside paging_init()
+		 * with nothing printed at all (b398).
+		 *
+		 * The four rejections are told apart on purpose: a block this board
+		 * genuinely needs is otherwise indistinguishable from a mis-parse,
+		 * and "skip" in the log says nothing about which of them it was.
 		 */
-		if (base < EVERGO_DRAM_BASE || !size || size > (1ULL << 29) ||
-		    end < base || end > dram_end) {
-			snprintf(msg, sizeof(msg), "EVB62:R1-skip-%d\n", i);
-			evergo_mark(msg);
-			continue;
-		}
-
-		/* the kernel is running from here -- never reserve or unmap it */
-		if (base < kend && end > kstart) {
-			snprintf(msg, sizeof(msg), "EVB62:R2-kern-%d\n", i);
-			evergo_mark(msg);
-			continue;
-		}
-
+		if (base < EVERGO_DRAM_BASE) {
+			why = EVERGO_LK_SKIP_BELOW;
+		} else if (!size) {
+			why = EVERGO_LK_SKIP_ZERO;
+		} else if (size > (1ULL << 29)) {
+			why = EVERGO_LK_SKIP_BIG;
+		} else if (end < base || end > dram_end) {
+			why = EVERGO_LK_SKIP_PAST;
 		/*
-		 * The DTS table already reserved and nomap'd its ranges; adding them
-		 * again buys nothing, and memblock_is_reserved() on the base address is
-		 * enough to tell.
+		 * the kernel is running from here -- never reserve or unmap it
 		 */
-		if (memblock_is_reserved(base)) {
-			snprintf(msg, sizeof(msg), "EVB62:R5-have-%d\n", i);
-			evergo_mark(msg);
-			continue;
-		}
-
+		} else if (base < kend && end > kstart) {
+			why = EVERGO_LK_KERNEL;
+		/*
+		 * The embedded tree already protects this range -- either as a
+		 * plain reserved node (log_store, gz_log) or, far more often here,
+		 * as a no-map one, which lives in memblock.memory as a flag rather
+		 * than in memblock.reserved.
+		 */
+		} else if (memblock_is_reserved(base) || evergo_is_nomapped(base)) {
+			why = EVERGO_LK_HAVE;
 		/*
 		 * Remove rather than reserve+nomap.
 		 *
-		 * memblock_mark_nomap() only suppresses the linear mapping; it does not
-		 * keep the range out of the allocator.
-		 * early_pgtable_alloc() allocates with
-		 * memblock_phys_alloc_range(..., MEMBLOCK_ALLOC_NOLEAKTRACE), which
-		 * filters reserved ranges but not NOMAP ones, so a page-table page could
-		 * be handed out of a nomap range -- and then the kernel faults the
-		 * moment it touches it through __va(), with the linear mapping
-		 * deliberately absent.  That is what killed paging_init() (b400:
-		 * the last mark was EVM:SA2-paging and the new 128 MiB range at
-		 * 0x49100000 was in the pool).
+		 * memblock_mark_nomap() only suppresses the linear mapping; it does
+		 * not keep the range out of the allocator.  early_pgtable_alloc()
+		 * allocates with memblock_phys_alloc_range(...,
+		 * MEMBLOCK_ALLOC_NOLEAKTRACE), which filters reserved ranges but not
+		 * NOMAP ones, so a page-table page could be handed out of a nomap
+		 * range -- and then the kernel faults the moment it touches it
+		 * through __va(), with the linear mapping deliberately absent.  That
+		 * is what killed paging_init() (b400: the last mark was
+		 * EVM:SA2-paging and the new 128 MiB range at 0x49100000 was in the
+		 * pool).
 		 *
 		 * Taking the range out of memblock.memory does both jobs at once: it
 		 * can no longer be allocated and it is no longer mapped.
 		 */
-		if (memblock_remove(base, size)) {
-			snprintf(msg, sizeof(msg), "EVB62:R3-nomem-%d\n", i);
-			evergo_mark(msg);
-			continue;
+		} else if (memblock_remove(base, size)) {
+			why = EVERGO_LK_NOMEM;
+		} else {
+			why = EVERGO_LK_KEPT;
+			added++;
 		}
-		snprintf(msg, sizeof(msg), "EVB62:R4-keep-%d-b%x-s%x\n",
-			 i, (u32)base, (u32)size);
+
+		evergo_lk_outcome[i] = why;
+		/*
+		 * %012llx, not %x: a base above 4 GiB truncated to 32 bits made the
+		 * 5 GiB and 9 GiB rank markers print as the same 0x3ffff000, which
+		 * read as "LK reports both markers at 3 GiB" and sent one debugging
+		 * session looking for a conflict that was not there.
+		 */
+		snprintf(msg, sizeof(msg), "EVB62:Rm%02d-%012llx+%08llx-%s\n",
+			 i, base, size, evergo_lk_outcome_name[why]);
 		evergo_mark(msg);
-		added++;
 	}
 
 	pr_info("evergo: kept %d of %d bootloader reservations\n",
 		added, evergo_lk_mblocks_nr);
+}
+
+/*
+ * Replay the same table into the pstore text log.
+ *
+ * The breadcrumbs above are the crash-proof copy, but they are capped at
+ * EVERGO_MARK_LIMIT and share a ring whose slots rotate, so on a boot that
+ * reaches userspace the early ones are gone.  The text log is neither capped
+ * nor rotated away -- and it is what read_expdb_klog.py reads first, because
+ * LK does not overwrite it -- so print the table once more, in full, as soon
+ * as it is mappable.
+ */
+static void __init evergo_report_lk_reserved(void)
+{
+	int i;
+
+	pr_info("evergo: bootloader reservations: %d block(s)\n",
+		evergo_lk_mblocks_nr);
+	for (i = 0; i < evergo_lk_mblocks_nr; i++)
+		pr_info("evergo: lkmb%02d %012llx+%08llx %s\n", i,
+			evergo_lk_mblocks[i].base, evergo_lk_mblocks[i].size,
+			evergo_lk_outcome_name[evergo_lk_outcome[i]]);
 }
 #endif
 
