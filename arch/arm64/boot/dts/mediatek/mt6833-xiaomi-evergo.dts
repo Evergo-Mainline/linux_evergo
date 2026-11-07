@@ -131,10 +131,16 @@
 			no-map;
 		};
 
-		/* Framebuffer shared with the bootloader (LK) */
-		framebuffer_reserved: memory@7c610000 {
-			reg = <0 0x7cf10000 0 0x1df0000>;
-		};
+		/*
+		 * framebuffer_reserved (0x7cf10000-0x7ed00000) used to live here,
+		 * described as "shared with the bootloader".  It cannot be on this
+		 * unit: the bootloader reports TEE_R as 0x7e400000-0x7f400000, which
+		 * covers 9 MiB of it.  The vendor layout puts the framebuffer just
+		 * below TEE_R, and TEE_R grows when the panel needs a bigger one, so
+		 * the address moves from unit to unit.  Nothing here consumes the
+		 * node anyway -- no compatible, no phandle -- and the DRM driver
+		 * allocates its own framebuffer, so it only cost memory.
+		 */
 
 		minirdump: memory@48170000 {
 			reg = <0 0x48170000 0 0x10000>;
@@ -174,8 +180,15 @@
 			no-map;
 		};
 
+		/*
+		 * The node was already named for 0x7f500000 -- which is where LK
+		 * puts mcupm -- but reg still carried 0x7ed00000 from an older
+		 * layout.  That address sits inside TEE_R below, so the node
+		 * reserved nothing of its own and the real mcupm window was only
+		 * covered by accident, as a tail of tee_ree_reserved_hi.
+		 */
 		mcupm_reserved: memory@7f500000 {
-			reg = <0 0x7ed00000 0 0x100000>;
+			reg = <0 0x7f500000 0 0x100000>;
 			no-map;
 		};
 
@@ -185,20 +198,17 @@
 		};
 
 		/*
-		 * 0x7ee00000-0x7fa00000, minus the gz_log window at
-		 * 0x7f400000-0x7f441000.  Split in two so no two nodes overlap:
-		 * gz_log is deliberately *not* no-map (something needs to map it),
-		 * and it used to sit inside this no-map range, which produced
-		 * "OVERLAP DETECTED" and left the mapping undefined.  The union of
-		 * the two parts is exactly the range LK reserves.
+		 * TEE_R: 0x7e400000-0x7f400000.  The bootloader reports it as two
+		 * mblocks -- 0x7e400000+12 MiB and 0x7f000000+4 MiB -- and this is
+		 * their union, ending exactly where the gz_log window starts.
+		 *
+		 * It used to be described as 0x7ee00000-0x7f6fffff split around
+		 * gz_log, which overlapped gz as well and left the first 10 MiB of
+		 * the real range undescribed; that head was only ever protected by
+		 * the run-time read of the bootloader's table.
 		 */
-		tee_ree_reserved_lo: memory@7ee00000 {
-			reg = <0 0x7ee00000 0 0x600000>;
-			no-map;
-		};
-		/* stops at 0x7f600000, where gz below takes over */
-		tee_ree_reserved_hi: memory@7f441000 {
-			reg = <0 0x7f441000 0 0x1bf000>;
+		tee_ree_reserved: memory@7e400000 {
+			reg = <0 0x7e400000 0 0x1000000>;
 			no-map;
 		};
 
@@ -252,21 +262,22 @@
 			no-map;
 		};
 
-		/* DDR rank markers reserved by LK */
-		dramc_rk0: memory@13ffff000 {
-			reg = <1 0x3ffff000 0 0x1000>;
-			no-map;
-		};
-
-		dramc_rk1: memory@23ffff000 {
-			reg = <2 0x3ffff000 0 0x1000>;
-			no-map;
-		};
-		/* reserved by LK at boot (mblock); must not be used by Linux */
-		memory@6c000000 {
-			reg = <0 0x6c000000 0 0x2960000>;
-			no-map;
-		};
+		/*
+		 * The DDR rank markers used to be described here and at
+		 * memory@1bffff000.  They are mblocks the bootloader places itself,
+		 * and only on the units that actually have those ranks -- a 4 GiB
+		 * board has one, an 8 GiB one has three -- so they move with the
+		 * DRAM size and are picked up by the run-time read of its
+		 * reserved-memory table instead.
+		 */
+		/*
+		 * memory@6c000000 (0x6c000000-0x6e960000, 41 MiB) used to live here,
+		 * labelled "reserved by LK at boot (mblock)".  It is not: the
+		 * bootloader's /reserved-memory has 43 children and not one of them
+		 * is at 0x6c000000 (see the lkmb table in the boot log).  Keeping the
+		 * node only ever cost 41 MiB of DRAM.  Put it back if something turns
+		 * out to want that window.
+		 */
 		/* reserved by LK at boot (mblock); must not be used by Linux */
 		memory@7a000000 {
 			reg = <0 0x7a000000 0 0x1b0000>;
@@ -317,27 +328,11 @@
 			reg = <0 0x77ff0000 0 0x10000>;
 			no-map;
 		};
-		/* reserved by LK at boot (mblock); must not be used by Linux */
-		memory@d0000000 {
-			reg = <0 0xd0000000 0 0x200000>;
-			no-map;
-		};
-		/* reserved by LK at boot (mblock); must not be used by Linux */
-		memory@d0200000 {
-			reg = <0 0xd0200000 0 0x200000>;
-			no-map;
-		};
 		/*
-		 * 7 GiB rank marker: 0x1_bffff000.  A single address cell cannot
-		 * hold 0x1bffff000 -- that needs 33 bits -- so the value was
-		 * truncated to 0xbffff000 and made this node collide with the
-		 * 3 GiB marker below: two "overlaps" warnings at boot, and the
-		 * 7 GiB marker itself left completely unreserved.
+		 * memory@d0000000 and memory@d0200000 (2 MiB each) carried the same
+		 * "reserved by LK at boot" label and, like memory@6c000000 above,
+		 * are absent from the bootloader's actual table.
 		 */
-		memory@1bffff000 {
-			reg = <1 0xbffff000 0 0x1000>;
-			no-map;
-		};
 		/*
 		 * The 4 KiB mblock at 0xbffff000 is already inside
 		 * atf_ramdump_reserved (0xbff80000-0xc0000000) above, so it is
