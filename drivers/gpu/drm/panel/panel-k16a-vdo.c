@@ -20,6 +20,7 @@
 
 #include <linux/backlight.h>
 #include <linux/delay.h>
+#include <linux/evergo_lcm.h>
 #include <linux/gpio/consumer.h>
 #include <linux/module.h>
 #include <linux/of.h>
@@ -398,6 +399,7 @@ static const struct drm_panel_funcs k16a_panel_funcs = {
 static int k16a_probe(struct mipi_dsi_device *dsi)
 {
 	struct device *dev = &dsi->dev;
+	const struct k16a_desc *from_dt;
 	struct k16a *ctx;
 	int ret;
 
@@ -408,7 +410,32 @@ static int k16a_probe(struct mipi_dsi_device *dsi)
 
 	ctx->dev = dev;
 	ctx->dsi = dsi;
-	ctx->desc = of_device_get_match_data(dev);
+	from_dt = of_device_get_match_data(dev);
+	ctx->desc = from_dt;
+
+	/*
+	 * The embedded tree can only name one of the two modules, and this board
+	 * ships both against identical DSI hardware -- the DTS here names Tianma
+	 * while the unit may well be CSOT.  LK probes what is actually fitted and
+	 * leaves the answer in /chosen, which setup_arch() reads into
+	 * evergo_lcm(), so trust that over the compatible.  The two modules need
+	 * different DCS init sequences and different vertical sync splits, so
+	 * getting this wrong is not cosmetic.
+	 */
+	switch (evergo_lcm) {
+	case EVERGO_LCM_TIANMA:
+		ctx->desc = &k16a_36_desc;
+		break;
+	case EVERGO_LCM_CSOT:
+		ctx->desc = &k16a_42_desc;
+		break;
+	default:
+		break;
+	}
+
+	if (ctx->desc != from_dt)
+		dev_info(dev, "dts says %s, the bootloader probed %s\n",
+			 from_dt->name, ctx->desc->name);
 
 	/*
 	 * request every control pin AS-IS.  The probe used to force
