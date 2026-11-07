@@ -65,13 +65,28 @@
 	};
 
 	/*
-	 * LK reports the DRAM it trained in /memory of the DT it hands over;
-	 * this unit is an 8 GiB one. Keep this in sync with the variant in use
-	 * (4/6/8 GiB evergo variants exist).
+	 * LK reports the DRAM it trained in /memory of the tree it hands over, but
+	 * the kernel boots from the tree embedded here (see
+	 * CONFIG_MT6833_EVERGO_FORCE_DT), so that report is not what fills memblock.
+	 *
+	 * It is still read, though.  setup_arch() parses /memory out of the LK's
+	 * tree *before* swapping ours in (evergo_read_lk_dram()) and then drops
+	 * everything above it from memblock (evergo_trim_dram()).  That is what
+	 * lets one image run on every DRAM variant of this board -- 4 GiB, 6 GiB and
+	 * 8 GiB, the largest one it was ever built with.
+	 *
+	 * So the value below is a *ceiling*, not a measurement.  Declaring too much
+	 * is safe precisely because of the trim; declaring too little is not
+	 * fixable at run time, since memblock would simply never learn about the
+	 * rest.  Hence the largest size this board was ever built with.
+	 *
+	 * Cross-check on a running unit: this 8 GiB phone had the LK-placed
+	 * reservation at 0x2_3ffff000, i.e. 4 KiB below the 9 GiB boundary, which
+	 * is where a 1..9 GiB mapping ends.
 	 */
 	memory: memory@40000000 {
 		device_type = "memory";
-		reg = <0 0x40000000 0x1 0x80000000>;
+		reg = <0 0x40000000 0x2 0x00000000>;
 	};
 
 	/*
@@ -169,8 +184,21 @@
 			no-map;
 		};
 
-		tee_ree_reserved: memory@7e400000 {
-			reg = <0 0x7ee00000 0 0xc00000>;
+		/*
+		 * 0x7ee00000-0x7fa00000, minus the gz_log window at
+		 * 0x7f400000-0x7f441000.  Split in two so no two nodes overlap:
+		 * gz_log is deliberately *not* no-map (something needs to map it),
+		 * and it used to sit inside this no-map range, which produced
+		 * "OVERLAP DETECTED" and left the mapping undefined.  The union of
+		 * the two parts is exactly the range LK reserves.
+		 */
+		tee_ree_reserved_lo: memory@7ee00000 {
+			reg = <0 0x7ee00000 0 0x600000>;
+			no-map;
+		};
+		/* stops at 0x7f600000, where gz below takes over */
+		tee_ree_reserved_hi: memory@7f441000 {
+			reg = <0 0x7f441000 0 0x1bf000>;
 			no-map;
 		};
 
@@ -184,10 +212,12 @@
 			no-map;
 		};
 
-		tee_secmem: memory@7f000000 {
-			reg = <0 0x7fa00000 0 0x400000>;
-			no-map;
-		};
+		/*
+		 * tee_secmem (0x7fa00000-0x7fe00000) used to live here.  It is a
+		 * subset of gz below (0x7f600000-0x7fe00000) and both are no-map,
+		 * so keeping it only added a second OVERLAP DETECTED without
+		 * reserving anything extra.
+		 */
 
 		atf_log_reserved: memory@bfe00000 {
 			reg = <0 0xbfe00000 0 0x40000>;
@@ -297,16 +327,22 @@
 			reg = <0 0xd0200000 0 0x200000>;
 			no-map;
 		};
-		/* reserved by LK at boot (mblock); must not be used by Linux */
+		/*
+		 * 7 GiB rank marker: 0x1_bffff000.  A single address cell cannot
+		 * hold 0x1bffff000 -- that needs 33 bits -- so the value was
+		 * truncated to 0xbffff000 and made this node collide with the
+		 * 3 GiB marker below: two "overlaps" warnings at boot, and the
+		 * 7 GiB marker itself left completely unreserved.
+		 */
 		memory@1bffff000 {
-			reg = <0 0x1bffff000 0 0x1000>;
+			reg = <1 0xbffff000 0 0x1000>;
 			no-map;
 		};
-		/* reserved by LK at boot (mblock); must not be used by Linux */
-		memory@bffff000 {
-			reg = <0 0xbffff000 0 0x1000>;
-			no-map;
-		};
+		/*
+		 * The 4 KiB mblock at 0xbffff000 is already inside
+		 * atf_ramdump_reserved (0xbff80000-0xc0000000) above, so it is
+		 * dropped instead of being described twice.
+		 */
 	};
 
 	/*
@@ -459,8 +495,29 @@
 	status = "okay";
 };
 
+/*
+ * clock-names and clocks have to match in length.  mt6833.dtsi declares
+ * clock-names = "baud", "bus" but supplies a single clocks entry, and
+ * 8250_mtk.c does not exempt the bus clock from errors:
+ *
+ *     data->bus_clk = devm_clk_get_enabled(&pdev->dev, "bus");
+ *     if (IS_ERR(data->bus_clk))
+ *             return PTR_ERR(data->bus_clk);
+ *
+ * so probe stopped at -ENOENT on every boot, reported as
+ *
+ *     mt6577-uart 11002000.serial: probe failed with error -2
+ *
+ * The real bus gate is infracfg_ao's CLK_IFRAO_UART0, but its parent
+ * fuart_ck comes from a topckgen that is not wired up in this tree yet,
+ * and referencing it would only turn the failure into -EPROBE_DEFER.
+ * Pointing both entries at clk26m is enough: that is the MTK uart baud
+ * source, and it is what earlycon has been driving this port with all
+ * along.
+ */
 &uart0 {
 	status = "okay";
+	clocks = <&clk26m>, <&clk26m>;
 };
 
 /*
@@ -1725,4 +1782,47 @@
 	operating-points-v2 = <&cluster1_opp>;
 	proc-supply = <&mt6359_vgpu11_buck_reg>;
 	sram-supply = <&mt6359_vsram_proc1_ldo_reg>;
+};
+
+/*
+ * The gpu-thermal / gpu1-thermal cooling maps ask for devfreq state 2..7, but
+ * this port's OPP table has only seven entries (390 .. 880 MHz), so
+ * devfreq_cooling reports max_state = 6 and thermal_bind_cdev_to_trip()
+ * rejects the map with -EINVAL:
+ *
+ *     thermal thermal_zone6: binding cdev devfreq-13000000.gpu to trip 1 failed: -22
+ *     thermal thermal_zone7: binding cdev devfreq-13000000.gpu to trip 1 failed: -22
+ *
+ * map0 (state 0..2) is fine, which is why only trip 1 complained.  Clamp the
+ * upper bound to the highest state that actually exists; the throttling
+ * behaviour is otherwise unchanged.
+ */
+&gpu_map1 {
+	cooling-device = <&gpu 2 6>;
+};
+
+&gpu1_map1 {
+	cooling-device = <&gpu 2 6>;
+};
+
+/*
+ * wmt_drv calls regulator_set_voltage() on all five CONN rails.  mt6359.dtsi
+ * gives ldo_vcn33_1/2 nothing but a regulator-name, so the regulator core
+ * never sets REGULATOR_CHANGE_VOLTAGE in valid_ops_mask and every attempt is
+ * rejected:
+ *
+ *     vcn33_1: voltage operation not allowed
+ *     vcn33_2: voltage operation not allowed
+ *
+ * VCN33 is the 3.3 V rail feeding the MT6631 inside the CONN subsystem.  Pin
+ * both to 3.3 V, which is the value the vendor table uses.
+ */
+&mt6359_vcn33_1_ldo_reg {
+	regulator-min-microvolt = <3300000>;
+	regulator-max-microvolt = <3300000>;
+};
+
+&mt6359_vcn33_2_ldo_reg {
+	regulator-min-microvolt = <3300000>;
+	regulator-max-microvolt = <3300000>;
 };
