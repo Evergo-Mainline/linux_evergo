@@ -1362,6 +1362,15 @@
 			power-domains = <&spm MT6833_POWER_DOMAIN_CAM_RAWB>;
 		};
 
+		seninf: seninf@1a004000 {
+			compatible = "mediatek,mt6833-seninf";
+			reg = <0 0x1a004000 0 0x10000>;
+			clocks = <&topckgen CLK_TOP_SENINF_SEL>;
+			clock-names = "seninf";
+			power-domains = <&spm MT6833_POWER_DOMAIN_CAM>;
+			status = "disabled";
+		};
+
 		mipi_csi_rx: phy@11c80000 {
 			compatible = "mediatek,mt6833-csi-rx";
 			reg = <0 0x11c80000 0 0x10000>;
