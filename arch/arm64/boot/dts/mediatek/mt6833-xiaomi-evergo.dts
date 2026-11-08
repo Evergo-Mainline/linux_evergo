@@ -1310,6 +1310,18 @@
 				};
 			};
 
+			regulator {
+				compatible = "mediatek,mt6360-regulator";
+
+				/* Vendor cam0 vcamio = MT6360 LDO2 (VTP), 1.8 V */
+				mt6360_ldo2: ldo2 {
+					regulator-name = "vtp";
+					regulator-min-microvolt = <1800000>;
+					regulator-max-microvolt = <1800000>;
+					regulator-always-on;
+				};
+			};
+
 			led-controller {
 				compatible = "mediatek,mt6360-led";
 				#address-cells = <1>;
@@ -1789,4 +1801,62 @@
 	operating-points-v2 = <&cluster1_opp>;
 	proc-supply = <&mt6359_vgpu11_buck_reg>;
 	sram-supply = <&mt6359_vsram_proc1_ldo_reg>;
+};
+
+/*
+ * Camera M2: WL2866D enable, vcamio always-on, CMMCLK0 on GPIO49 and the
+ * S5KJN1 sensor node.  The sensor driver probes and reads chip ID 0x38e1;
+ * the CSI-2 receiver (seninf) part is still missing.
+ */
+&pio {
+	wl2866d_en_hog: wl2866d-en-hog {
+		gpio-hog;
+		gpios = <59 0>;
+		output-high;
+		line-name = "wl2866d-en";
+	};
+
+	cam0_mclk_pins: cam0-mclk-pins {
+		pins-mclk {
+			pinmux = <PINMUX_GPIO49__FUNC_CMMCLK0>;
+			drive-strength = <2>;
+		};
+	};
+	cam0_rst_pins: cam0-rst-pins {
+		pins-rst {
+			pinmux = <PINMUX_GPIO54__FUNC_GPIO54>;
+			output-high;
+		};
+	};
+};
+
+&mt6359_vcamio_ldo_reg {
+	regulator-min-microvolt = <1800000>;
+	regulator-max-microvolt = <1800000>;
+	regulator-always-on;
+};
+
+&i2c2 {
+	status = "okay";
+	s5kjn1: camera@10 {
+		compatible = "samsung,s5kjn1";
+		/* vendor imgsensor tables store the 8-bit address (0x20 >> 1) */
+		reg = <0x10>;
+		reset-gpios = <&pio 54 GPIO_ACTIVE_LOW>;
+		vddio-supply = <&mt6360_ldo2>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&cam0_mclk_pins &cam0_rst_pins>;
+		clocks = <&topckgen CLK_TOP_CAMTG_SEL>;
+		assigned-clocks = <&topckgen CLK_TOP_CAMTG_SEL>;
+		assigned-clock-parents = <&topckgen CLK_TOP_UNIVPLL_192M_D8>;
+		assigned-clock-rates = <24000000>;
+		status = "okay";
+
+		port {
+			s5kjn1_out: endpoint {
+				data-lanes = <1 2 3 4>;
+				link-frequencies = /bits/ 64 <700000000>;
+			};
+		};
+	};
 };
