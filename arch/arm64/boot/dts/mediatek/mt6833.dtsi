@@ -1345,18 +1345,21 @@
 			compatible = "mediatek,mt6833-camsys-main", "syscon";
 			reg = <0 0x1a000000 0 0x1000>;
 			#clock-cells=<1>;
+			power-domains = <&spm MT6833_POWER_DOMAIN_CAM>;
 		};
 
 		camsys_rawa: clock-controller@1a04f000 {
 			compatible = "mediatek,mt6833-camsys-rawa", "syscon";
 			reg = <0 0x1a04f000 0 0x1000>;
 			#clock-cells=<1>;
+			power-domains = <&spm MT6833_POWER_DOMAIN_CAM_RAWA>;
 		};
 
 		camsys_rawb: clock-controller@1a06f000 {
 			compatible = "mediatek,mt6833-camsys-rawb", "syscon";
 			reg = <0 0x1a06f000 0 0x1000>;
 			#clock-cells=<1>;
+			power-domains = <&spm MT6833_POWER_DOMAIN_CAM_RAWB>;
 		};
 
 		ipesys: clock-controller@1b000000 {

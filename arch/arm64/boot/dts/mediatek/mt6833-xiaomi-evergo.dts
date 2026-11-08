@@ -1002,6 +1002,31 @@
 /* Audio subsystem MTCMOS: needs the 26 MHz audio bus clocks while the
  * SRAM power-down acknowledgement is polled (vendor clk-mt6833-pg.c). */
 &spm {
+	/* Camera MTCMOS domains: keep the camera clock running while the SPM
+	 * polls the SRAM power-down acknowledgement (vendor clk-mt6833-pg.c). */
+	power-domain@MT6833_POWER_DOMAIN_CAM {
+		reg = <MT6833_POWER_DOMAIN_CAM>;
+		clocks = <&topckgen CLK_TOP_CAM_SEL>;
+		clock-names = "cam";
+		#power-domain-cells = <0>;
+	};
+
+	power-domain@MT6833_POWER_DOMAIN_CAM_RAWA {
+		reg = <MT6833_POWER_DOMAIN_CAM_RAWA>;
+		clocks = <&topckgen CLK_TOP_CAM_SEL>;
+		clock-names = "cam";
+		#power-domain-cells = <0>;
+	};
+
+	power-domain@MT6833_POWER_DOMAIN_CAM_RAWB {
+		reg = <MT6833_POWER_DOMAIN_CAM_RAWB>;
+		clocks = <&topckgen CLK_TOP_CAM_SEL>;
+		clock-names = "cam";
+		#power-domain-cells = <0>;
+	};
+};
+
+&spm {
 	power-domain@MT6833_POWER_DOMAIN_AUDIO {
 		reg = <MT6833_POWER_DOMAIN_AUDIO>;
 		clocks = <&topckgen CLK_TOP_AUD_INTBUS_SEL>,
