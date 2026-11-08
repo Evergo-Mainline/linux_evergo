@@ -917,7 +917,13 @@ static void mtk_seninf_mt6833_start(struct mtk_seninf *priv,
 	 * 0x0404).  Overwriting it with the pipeline mux id (0) cut the
 	 * CAMSV off from the CSI-2 data and left it with VS-only interrupts.
 	 */
-	(void)mux_id;
+	/* Route cammux5 (CAMSV3/CAM_A input) to the mux instance we start. */
+	{
+		u32 cm = readl(priv->base + 0x0404);
+		cm &= ~(0xffu << 8);
+		cm |= (mux_id & 0xf) << 8;
+		writel(cm, priv->base + 0x0404);
+	}
 	writel(0x0000ffff, priv->base + 0x0410);
 	writel(0x0000ffff, priv->base + 0x0418);
 	writel(0x0000ab80, priv->base + MT6833_CAM_MUX_OPT + 4 * k);
