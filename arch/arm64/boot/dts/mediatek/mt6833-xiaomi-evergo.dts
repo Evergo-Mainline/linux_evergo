@@ -1885,3 +1885,7 @@
 		};
 	};
 };
+
+&mipi_csi_rx {
+	status = "okay";
+};
