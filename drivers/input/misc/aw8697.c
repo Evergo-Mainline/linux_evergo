@@ -181,6 +181,7 @@ struct aw8697 {
 	struct input_dev *input;
 	struct mutex lock;
 	struct work_struct play_work;
+	struct delayed_work stop_work;
 	unsigned int level;
 
 	u32 f0_pre;
@@ -407,6 +408,100 @@ static int aw8697_play_effect(struct input_dev *dev, void *data,
 
 	return 0;
 }
+
+static void aw8697_stop_work(struct work_struct *work)
+{
+	struct aw8697 *h = container_of(to_delayed_work(work),
+					struct aw8697, stop_work);
+	int ret;
+
+	mutex_lock(&h->lock);
+	ret = aw8697_stop(h);
+	h->level = 0;
+	mutex_unlock(&h->lock);
+
+	if (ret)
+		dev_err(h->dev, "haptic stop failed: %d\n", ret);
+}
+
+/* amplitude in raw rumble units (0..0xffff); used by the run attribute */
+static ssize_t amplitude_show(struct device *dev,
+			      struct device_attribute *attr, char *buf)
+{
+	struct aw8697 *h = dev_get_drvdata(dev);
+
+	return sysfs_emit(buf, "%u\n", h->level);
+}
+
+static ssize_t amplitude_store(struct device *dev,
+			       struct device_attribute *attr,
+			       const char *buf, size_t count)
+{
+	struct aw8697 *h = dev_get_drvdata(dev);
+	unsigned int val;
+	int ret;
+
+	ret = kstrtouint(buf, 0, &val);
+	if (ret)
+		return ret;
+	if (val > 0xffff)
+		return -EINVAL;
+
+	mutex_lock(&h->lock);
+	h->level = val;
+	mutex_unlock(&h->lock);
+
+	return count;
+}
+static DEVICE_ATTR_RW(amplitude);
+
+/* run a continuous haptic for the given time (ms) with current amplitude */
+static ssize_t run_store(struct device *dev, struct device_attribute *attr,
+			 const char *buf, size_t count)
+{
+	struct aw8697 *h = dev_get_drvdata(dev);
+	unsigned int ms;
+	int ret;
+
+	ret = kstrtouint(buf, 0, &ms);
+	if (ret)
+		return ret;
+	if (!ms)
+		return -EINVAL;
+	ms = min(ms, 5000U);
+
+	mutex_lock(&h->lock);
+	if (!h->level)
+		h->level = 0x8000;
+	ret = aw8697_start_cont(h, h->level);
+	mutex_unlock(&h->lock);
+	if (ret)
+		return ret;
+
+	schedule_delayed_work(&h->stop_work, msecs_to_jiffies(ms));
+
+	return count;
+}
+static DEVICE_ATTR_WO(run);
+
+static ssize_t f0_show(struct device *dev, struct device_attribute *attr,
+		       char *buf)
+{
+	struct aw8697 *h = dev_get_drvdata(dev);
+
+	return sysfs_emit(buf, "%u\n", h->f0_pre);
+}
+static DEVICE_ATTR_RO(f0);
+
+static struct attribute *aw8697_attrs[] = {
+	&dev_attr_amplitude.attr,
+	&dev_attr_run.attr,
+	&dev_attr_f0.attr,
+	NULL,
+};
+static const struct attribute_group aw8697_group = {
+	.attrs = aw8697_attrs,
+};
 
 static int aw8697_hw_reset(struct aw8697 *h)
 {
@@ -652,6 +747,7 @@ static int aw8697_probe(struct i2c_client *client)
 	i2c_set_clientdata(client, h);
 	mutex_init(&h->lock);
 	INIT_WORK(&h->play_work, aw8697_play_work);
+	INIT_DELAYED_WORK(&h->stop_work, aw8697_stop_work);
 
 	h->regmap = devm_regmap_init_i2c(client, &aw8697_regmap_config);
 	if (IS_ERR(h->regmap))
