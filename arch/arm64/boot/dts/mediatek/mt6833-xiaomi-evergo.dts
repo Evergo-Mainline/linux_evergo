@@ -1889,3 +1889,7 @@
 &mipi_csi_rx {
 	status = "okay";
 };
+
+&seninf {
+	status = "okay";
+};
