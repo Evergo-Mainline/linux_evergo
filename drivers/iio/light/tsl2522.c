@@ -41,6 +41,8 @@
 
 struct tsl2522_data {
 	struct regmap *regmap;
+	u32 lux_scale_num;
+	u32 lux_scale_den;
 };
 
 static const struct regmap_config tsl2522_regmap_config = {
@@ -145,6 +147,12 @@ static int tsl2522_read_raw(struct iio_dev *indio_dev,
 	unsigned int status2;
 	int ret, tries;
 
+	if (mask == IIO_CHAN_INFO_SCALE) {
+		*val = data->lux_scale_num;
+		*val2 = data->lux_scale_den;
+		return IIO_VAL_FRACTIONAL;
+	}
+
 	if (mask != IIO_CHAN_INFO_RAW)
 		return -EINVAL;
 
@@ -165,10 +173,14 @@ static int tsl2522_read_raw(struct iio_dev *indio_dev,
 	if (ret)
 		return ret;
 
-	if (chan->channel == 0)
-		*val = buf[1] | (buf[2] << 8);
-	else
+	if (chan->channel == 0) {
+		/* calibrated lux value (DT lux-scale-num/den) */
+		u32 raw = buf[1] | (buf[2] << 8);
+
+		*val = (u64)raw * data->lux_scale_num / data->lux_scale_den;
+	} else {
 		*val = buf[3] | (buf[4] << 8);
+	}
 
 	return IIO_VAL_INT;
 }
@@ -181,7 +193,8 @@ static const struct iio_chan_spec tsl2522_channels[] = {
 	{
 		.type = IIO_LIGHT,
 		.channel = 0,
-		.info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
+		.info_mask_separate = BIT(IIO_CHAN_INFO_RAW) |
+				      BIT(IIO_CHAN_INFO_SCALE),
 	},
 	{
 		.type = IIO_INTENSITY,
@@ -201,6 +214,15 @@ static int tsl2522_probe(struct i2c_client *client)
 		return -ENOMEM;
 
 	data = iio_priv(indio_dev);
+	data->lux_scale_num = 1;
+	data->lux_scale_den = 1;
+	device_property_read_u32(&client->dev, "lux-scale-num",
+				 &data->lux_scale_num);
+	device_property_read_u32(&client->dev, "lux-scale-den",
+				 &data->lux_scale_den);
+	if (!data->lux_scale_den)
+		data->lux_scale_den = 1;
+
 	data->regmap = devm_regmap_init_i2c(client, &tsl2522_regmap_config);
 	if (IS_ERR(data->regmap))
 		return dev_err_probe(&client->dev, PTR_ERR(data->regmap),
