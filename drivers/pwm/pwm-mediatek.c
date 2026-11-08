@@ -510,6 +510,14 @@ static const struct pwm_mediatek_of_data mt2712_pwm_data = {
 	.chanreg_width = 0x40,
 };
 
+static const struct pwm_mediatek_of_data mt6833_pwm_data = {
+	.num_pwms = 4,
+	.clksel_fixup = false,
+	.pwm45_fixup = false,
+	.chanreg_base = 0x10,
+	.chanreg_width = 0x40,
+};
+
 static const struct pwm_mediatek_of_data mt6795_pwm_data = {
 	.num_pwms = 7,
 	.clksel_fixup = false,
@@ -616,6 +624,7 @@ static const struct pwm_mediatek_of_data mt6991_pwm_data = {
 static const struct of_device_id pwm_mediatek_of_match[] = {
 	{ .compatible = "mediatek,mt2712-pwm", .data = &mt2712_pwm_data },
 	{ .compatible = "mediatek,mt6795-pwm", .data = &mt6795_pwm_data },
+	{ .compatible = "mediatek,mt6833-pwm", .data = &mt6833_pwm_data },
 	{ .compatible = "mediatek,mt6991-pwm", .data = &mt6991_pwm_data },
 	{ .compatible = "mediatek,mt7622-pwm", .data = &mt7622_pwm_data },
 	{ .compatible = "mediatek,mt7623-pwm", .data = &mt7623_pwm_data },
