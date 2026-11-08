@@ -1297,7 +1297,7 @@
 			reg = <0x39>;
 			/* raw -> lux calibration factor (tune from a lux meter) */
 			lux-scale-num = <1>;
-			lux-scale-den = <1>;
+			lux-scale-den = <96>;
 		};
 	};
 

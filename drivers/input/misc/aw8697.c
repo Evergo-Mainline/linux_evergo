@@ -797,7 +797,8 @@ static int aw8697_probe(struct i2c_client *client)
 		return dev_err_probe(h->dev, ret, "failed to register input\n");
 
 	dev_info(h->dev, "AW8697 haptic driver ready (f0 %u Hz)\n", h->f0_pre);
-	return 0;
+
+	return devm_device_add_group(h->dev, &aw8697_group);
 }
 
 static void aw8697_remove(struct i2c_client *client)
