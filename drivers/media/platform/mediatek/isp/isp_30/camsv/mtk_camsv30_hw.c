@@ -211,6 +211,8 @@ static void mtk_camsv30_setup(struct mtk_cam_dev *cam_dev, u32 w, u32 h,
 		mtk_camsv30_tg_write(cam_dev, CAMSV_TG_SEN_GRAB_LIN, h << 16U);
 		mtk_camsv30_write(cam_dev, CAMSV_FMT_SEL, 0x1);
 		mtk_camsv30_write(cam_dev, CAMSV_PAK, 0x381);
+		mtk_camsv30_img0_write(cam_dev, 0x008, 5099);
+		mtk_camsv30_img0_write(cam_dev, 0x00c, h - 1U);
 		mtk_camsv30_img0_write(cam_dev, 0x010, 5099);
 		mtk_camsv30_img0_write(cam_dev, 0x014, h - 1U);
 		mtk_camsv30_img0_write(cam_dev, 0x018, 5100);
@@ -297,6 +299,16 @@ static irqreturn_t isp_irq_camsv30(int irq, void *data)
 	spin_lock_irqsave(&cam_dev->irqlock, flags);
 
 	irq_status = mtk_camsv30_read(cam_dev, CAMSV_INT_STATUS);
+	{
+		static u32 dbg_last;
+		static int dbg_n;
+		if (dbg_n < 40 && irq_status && irq_status != dbg_last) {
+			dev_info(cam_dev->dev, "irq status=%08x seq=%u\n",
+				 irq_status, cam_dev->sequence);
+			dbg_last = irq_status;
+			dbg_n++;
+		}
+	}
 	if (irq_status)
 		mtk_camsv30_write(cam_dev, CAMSV_INT_STATUS, irq_status);
 
@@ -306,7 +318,7 @@ static irqreturn_t isp_irq_camsv30(int irq, void *data)
 	}
 
 	/* De-queue frame */
-	if (irq_status & (cam_dev->mt6833 ? (BIT(10) | BIT(11)) : CAMSV_IRQ_PASS1_DON)) {
+	if (irq_status & (cam_dev->mt6833 ? (BIT(11) | BIT(12)) : CAMSV_IRQ_PASS1_DON)) {
 		cam_dev->sequence++;
 
 		if (!cam_dev->is_dummy_used) {

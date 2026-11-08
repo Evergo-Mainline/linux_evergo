@@ -10,6 +10,8 @@
 #include <linux/of_graph.h>
 #include <linux/of_platform.h>
 #include <linux/phy/phy.h>
+#include <linux/debugfs.h>
+#include <linux/fs.h>
 
 extern void mtk_csi_phy_mt6833_apply_vendor(struct phy *phy);
 #include <linux/platform_device.h>
@@ -196,6 +198,7 @@ struct mtk_seninf {
 
 	bool is_testmode;
 	bool mt6833;
+	struct dentry *dbg;
 };
 
 inline struct mtk_seninf *sd_to_mtk_seninf(struct v4l2_subdev *sd)
@@ -908,12 +911,13 @@ static void mtk_seninf_mt6833_start(struct mtk_seninf *priv,
 	/* TOP mux: mux0/1/2 listen to intf 2 (golden 0x03020202). */
 	writel(0x03020202, priv->base + MT6833_TOP_MUX_CTRL);
 
-	/* CAM_MUX 5 -> SENINF mux 0, DT 0x2b, expected 4080x3072. */
-	off = MT6833_CAM_MUX_CTRL + 4 * (k / 4);
-	shift = 8 * (k % 4);
-	val = readl(priv->base + off);
-	val = (val & ~(0xf << shift)) | ((mux_id & 0xf) << shift);
-	writel(val, priv->base + off);
+	/*
+	 * Do not reprogram the CAM_MUX crossbar here: the vendor golden
+	 * tables above already map cammux 5 to SENINF mux 1 (0x07060104 at
+	 * 0x0404).  Overwriting it with the pipeline mux id (0) cut the
+	 * CAMSV off from the CSI-2 data and left it with VS-only interrupts.
+	 */
+	(void)mux_id;
 	writel(0x0000ffff, priv->base + 0x0410);
 	writel(0x0000ffff, priv->base + 0x0418);
 	writel(0x0000ab80, priv->base + MT6833_CAM_MUX_OPT + 4 * k);
@@ -1615,6 +1619,105 @@ err_clean_media:
 	return ret;
 }
 
+static ssize_t mtk_seninf_poke_write(struct file *file, const char __user *ubuf,
+				    size_t count, loff_t *ppos)
+{
+	struct mtk_seninf *priv = file->private_data;
+	char buf[64];
+	unsigned int off, val;
+
+	if (count >= sizeof(buf))
+		return -EINVAL;
+	if (copy_from_user(buf, ubuf, count))
+		return -EFAULT;
+	buf[count] = '\0';
+	if (sscanf(buf, "%x %x", &off, &val) != 2)
+		return -EINVAL;
+	if (off >= 0xb000)
+		return -EINVAL;
+	writel(val, priv->base + off);
+	dev_info(priv->dev, "poke %04x = %08x (read %08x)\n",
+		 off, val, readl(priv->base + off));
+	return count;
+}
+
+static const struct file_operations mtk_seninf_poke_fops = {
+	.open = simple_open,
+	.write = mtk_seninf_poke_write,
+	.llseek = default_llseek,
+};
+
+static ssize_t mtk_seninf_dump_read(struct file *file, char __user *ubuf,
+				    size_t count, loff_t *ppos)
+{
+	struct mtk_seninf *priv = file->private_data;
+	char buf[256];
+	unsigned int off = *ppos;
+	int n = 0;
+
+	if (off >= 0xb000)
+		return 0;
+	while (n < (int)sizeof(buf) - 32 && off < 0xb000) {
+		n += scnprintf(buf + n, sizeof(buf) - n, "%04x = %08x\n",
+			       off, readl(priv->base + off));
+		off += 4;
+	}
+	*ppos = off;
+	if (copy_to_user(ubuf, buf, n))
+		return -EFAULT;
+	return n;
+}
+
+static const struct file_operations mtk_seninf_dump_fops = {
+	.open = simple_open,
+	.read = mtk_seninf_dump_read,
+	.llseek = default_llseek,
+};
+
+static ssize_t mtk_seninf_stream_write(struct file *file,
+				      const char __user *ubuf,
+				      size_t count, loff_t *ppos)
+{
+	struct mtk_seninf *priv = file->private_data;
+	char buf[8];
+	int val;
+	struct mtk_seninf_input *input = &priv->inputs[0];
+
+	if (count >= sizeof(buf))
+		return -EINVAL;
+	if (copy_from_user(buf, ubuf, count))
+		return -EFAULT;
+	buf[count] = '\0';
+	if (kstrtoint(buf, 0, &val))
+		return -EINVAL;
+
+	if (val) {
+		int ret = pm_runtime_get_sync(priv->dev);
+
+		if (ret < 0)
+			return ret;
+		if (!input->phy) {
+			dev_err(priv->dev, "seninf port0 not bound yet\n");
+			return -ENODEV;
+		}
+		phy_power_on(input->phy);
+		mtk_seninf_mt6833_start(priv, input, &priv->muxes[0]);
+		dev_info(priv->dev, "debugfs: seninf started on port0/mux0\n");
+	} else {
+		if (input->phy)
+			mtk_seninf_stop(priv, input);
+		dev_info(priv->dev, "debugfs: seninf stopped\n");
+		pm_runtime_put_autosuspend(priv->dev);
+	}
+	return count;
+}
+
+static const struct file_operations mtk_seninf_stream_fops = {
+	.open = simple_open,
+	.write = mtk_seninf_stream_write,
+	.llseek = default_llseek,
+};
+
 static int seninf_probe(struct platform_device *pdev)
 {
 	/* List of clocks required by seninf. */
@@ -1673,6 +1776,14 @@ static int seninf_probe(struct platform_device *pdev)
 
 	ret = mtk_seninf_v4l2_register(priv);
 	dev_info(dev, "step4 v4l2_register ret=%d\n", ret);
+
+	priv->dbg = debugfs_create_dir("mtk-seninf", NULL);
+	debugfs_create_file("poke", 0200, priv->dbg, priv,
+			    &mtk_seninf_poke_fops);
+	debugfs_create_file("dump", 0400, priv->dbg, priv,
+			    &mtk_seninf_dump_fops);
+	debugfs_create_file("stream", 0200, priv->dbg, priv,
+			    &mtk_seninf_stream_fops);
 	if (!ret)
 		pm_runtime_enable(dev);
 
