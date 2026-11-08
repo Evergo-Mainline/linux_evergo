@@ -1,0 +1,33 @@
+# SPDX-License-Identifier: GPL-2.0-only
+config MTK_SENINF
+	tristate "MediaTek ISP3.0 SENINF driver"
+	depends on VIDEO_V4L2_SUBDEV_API
+	depends on MEDIA_CAMERA_SUPPORT
+	depends on ARCH_MEDIATEK || COMPILE_TEST
+	depends on OF
+	select V4L2_FWNODE
+	default n
+	help
+	  This driver provides a MIPI CSI-2 receiver interface to connect
+	  an external camera module with MediaTek ISP3.0.
+
+config MTK_CAMSV30
+	tristate "MediaTek ISP3.0 CAMSV driver"
+	depends on VIDEO_V4L2_SUBDEV_API
+	depends on ARCH_MEDIATEK || COMPILE_TEST
+	depends on OF
+	depends on PM
+	select VIDEOBUF2_VMALLOC
+	select VIDEOBUF2_DMA_CONTIG
+	select MTK_SENINF
+	select PHY_MTK_MIPI_CSI_0_5
+	default n
+	help
+	  This driver provides a path to bypass the SoC ISP so that
+	  image data coming from the SENINF can go directly into memory.
+
+config MTK_CAMRAW
+	tristate "MediaTek CAM_A raw capture helper"
+	depends on ARCH_MEDIATEK || COMPILE_TEST
+	help
+	  Minimal CAM_A/MRAW capture helper for MT6833.
