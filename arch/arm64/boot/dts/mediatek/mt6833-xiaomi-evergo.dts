@@ -72,7 +72,7 @@
 	 */
 	memory: memory@40000000 {
 		device_type = "memory";
-		reg = <0 0x40000000 0x1 0x80000000>;
+		reg = <0 0x40000000 2 0x00000000>;
 	};
 
 	/*
@@ -1829,9 +1829,9 @@
 };
 
 /*
- * Camera M2: WL2866D enable, vcamio always-on, CMMCLK0 on GPIO49 and the
- * S5KJN1 sensor node.  The sensor driver probes and reads chip ID 0x38e1;
- * the CSI-2 receiver (seninf) part is still missing.
+ * Camera bring-up (M1): keep the external camera PMIC (WL2866D) enabled and
+ * release the cam0 reset so the sensor rails come up at boot.  WL2866D itself
+ * still needs its I2C init; this only validates power/I2C reachability.
  */
 &pio {
 	wl2866d_en_hog: wl2866d-en-hog {
@@ -1840,11 +1840,28 @@
 		output-high;
 		line-name = "wl2866d-en";
 	};
+};
 
+/* Camera M1: keep the sensor I/O rail (1.8 V) on; vcamio is disabled by default */
+&mt6359_vcamio_ldo_reg {
+	regulator-min-microvolt = <1800000>;
+	regulator-max-microvolt = <1800000>;
+	regulator-always-on;
+};
+
+/* Camera M2: CMMCLK0 on GPIO49 and the S5KJN1 sensor node */
+&pio {
 	cam0_mclk_pins: cam0-mclk-pins {
 		pins-mclk {
 			pinmux = <PINMUX_GPIO49__FUNC_CMMCLK0>;
 			drive-strength = <2>;
+		};
+	};
+	cam_mipi_sel: cam-mipi-sel {
+		pins-sel {
+			pinmux = <PINMUX_GPIO43__FUNC_GPIO43>;
+			slew-rate = <1>;
+			output-low;
 		};
 	};
 	cam0_rst_pins: cam0-rst-pins {
@@ -1853,12 +1870,6 @@
 			output-high;
 		};
 	};
-};
-
-&mt6359_vcamio_ldo_reg {
-	regulator-min-microvolt = <1800000>;
-	regulator-max-microvolt = <1800000>;
-	regulator-always-on;
 };
 
 &i2c2 {
@@ -1891,5 +1902,39 @@
 };
 
 &seninf {
+	pinctrl-names = "default";
+	pinctrl-0 = <&cam_mipi_sel>;
 	status = "okay";
+};
+
+&camsv3 {
+	status = "okay";
+};
+
+&camraw {
+	status = "okay";
+};
+
+&pio {
+	irtx_pwm_pins: irtx-pwm-pins {
+		pins-cmd-dat {
+			pinmux = <PINMUX_GPIO139__FUNC_PWM_2>;
+			output-high;
+			slew-rate = <1>;
+		};
+	};
+};
+
+&pwm {
+	status = "okay";
+};
+
+/ {
+	ir_tx: ir-tx {
+		compatible = "pwm-ir-tx";
+		pwms = <&pwm 2 26305>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&irtx_pwm_pins>;
+		status = "okay";
+	};
 };
