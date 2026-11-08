@@ -1341,11 +1341,131 @@
 			#clock-cells=<1>;
 		};
 
+		iommu: iommu@14016000 {
+			compatible = "mediatek,mt6833-m4u";
+			reg = <0 0x14016000 0 0x1000>;
+			interrupts = <GIC_SPI 271 IRQ_TYPE_LEVEL_HIGH>;
+			mediatek,larbs = <&smi_larb13 &smi_larb14>,
+					 <&smi_larb16 &smi_larb17>;
+			#iommu-cells = <1>;
+		};
+
+		smi_common: smi@14002000 {
+			compatible = "mediatek,mt6779-smi-common";
+			reg = <0 0x14002000 0 0x1000>;
+			clocks = <&mmsys CLK_MM_SMI_COMMON>,
+				 <&mmsys CLK_MM_SMI_COMMON>,
+				 <&mmsys CLK_MM_SMI_GALS>,
+				 <&mmsys CLK_MM_SMI_GALS>;
+			clock-names = "apb", "smi", "gals0", "gals1";
+		};
+
+		smi_larb13: smi-larb@1a001000 {
+			compatible = "mediatek,mt6779-smi-larb";
+			reg = <0 0x1a001000 0 0x1000>;
+			mediatek,smi = <&smi_common>;
+			mediatek,larb-id = <13>;
+			clocks = <&camsys_main CLK_CAM_M_LARB13>,
+				 <&camsys_main CLK_CAM_M_LARB13>;
+			clock-names = "apb", "smi";
+		};
+
+		smi_larb14: smi-larb@1a002000 {
+			compatible = "mediatek,mt6779-smi-larb";
+			reg = <0 0x1a002000 0 0x1000>;
+			mediatek,smi = <&smi_common>;
+			mediatek,larb-id = <14>;
+			clocks = <&camsys_main CLK_CAM_M_LARB14>,
+				 <&camsys_main CLK_CAM_M_LARB14>;
+			clock-names = "apb", "smi";
+		};
+
+		smi_larb16: smi-larb@1a00f000 {
+			compatible = "mediatek,mt6779-smi-larb";
+			reg = <0 0x1a00f000 0 0x1000>;
+			mediatek,smi = <&smi_common>;
+			mediatek,larb-id = <16>;
+			clocks = <&camsys_rawa CLK_CAM_RA_LARBX>,
+				 <&camsys_rawa CLK_CAM_RA_LARBX>;
+			clock-names = "apb", "smi";
+		};
+
+		smi_larb17: smi-larb@1a010000 {
+			compatible = "mediatek,mt6779-smi-larb";
+			reg = <0 0x1a010000 0 0x1000>;
+			mediatek,smi = <&smi_common>;
+			mediatek,larb-id = <17>;
+			clocks = <&camsys_rawb CLK_CAM_RB_LARBX>,
+				 <&camsys_rawb CLK_CAM_RB_LARBX>;
+			clock-names = "apb", "smi";
+		};
+
 		camsys_main: clock-controller@1a000000 {
 			compatible = "mediatek,mt6833-camsys-main", "syscon";
 			reg = <0 0x1a000000 0 0x1000>;
 			#clock-cells=<1>;
 			power-domains = <&spm MT6833_POWER_DOMAIN_CAM>;
+		};
+
+		camraw: camraw@1a030000 {
+			compatible = "mediatek,mt6833-camraw";
+			reg = <0 0x1a030000 0 0x8000>;
+			interrupts = <GIC_SPI 320 IRQ_TYPE_LEVEL_HIGH>;
+			power-domains = <&spm MT6833_POWER_DOMAIN_CAM_RAWA>,
+					<&spm MT6833_POWER_DOMAIN_CAM_RAWB>;
+			iommus = <&iommu 0x200>;
+			clocks = <&camsys_main CLK_CAM_M_CAM>,
+				 <&camsys_main CLK_CAM_M_CAMTG>,
+				 <&camsys_main CLK_CAM_M_LARB13>,
+				 <&camsys_main CLK_CAM_M_LARB14>,
+				 <&camsys_rawa CLK_CAM_RA_LARBX>,
+				 <&camsys_rawa CLK_CAM_RA_CAM>,
+				 <&camsys_rawa CLK_CAM_RA_CAMTG>,
+				 <&camsys_rawb CLK_CAM_RB_LARBX>,
+				 <&camsys_rawb CLK_CAM_RB_CAM>,
+				 <&camsys_rawb CLK_CAM_RB_CAMTG>;
+			clock-names = "m_cam", "m_camtg", "m_larb13", "m_larb14",
+				      "ra_larbx", "ra_cam", "ra_camtg",
+				      "rb_larbx", "rb_cam", "rb_camtg";
+			status = "disabled";
+		};
+
+		camsv3: camsv@1a092000 {
+			compatible = "mediatek,mt6833-camsv";
+			reg = <0 0x1a092000 0 0x1000>;
+			interrupts = <GIC_SPI 327 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&camsys_main CLK_CAM_M_CAM>,
+				 <&camsys_main CLK_CAM_M_CAMTG>,
+				 <&camsys_main CLK_CAM_M_CAMSV3>,
+				 <&camsys_main CLK_CAM_M_CAMSV1>,
+				 <&camsys_main CLK_CAM_M_LARB13>,
+				 <&camsys_main CLK_CAM_M_LARB14>,
+				 <&camsys_main CLK_CAM_M_CCU_GALS>,
+				 <&camsys_main CLK_CAM_M_CAM2MM_GALS>;
+			clock-names = "camsys_cam_cgpdn",
+				      "camsys_camtg_cgpdn",
+				      "camsys_camsv",
+				      "camsys_camsv1",
+				      "camsys_larb13",
+				      "camsys_larb14",
+				      "camsys_ccu_gals",
+				      "camsys_cam2mm_gals";
+			mediatek,camsys = <&camsys_main>;
+			mediatek,infracfg = <&infracfg_ao>;
+			power-domains = <&spm MT6833_POWER_DOMAIN_CAM>;
+			iommus = <&iommu 0x200>;
+			status = "disabled";
+
+			ports {
+				#address-cells = <1>;
+				#size-cells = <0>;
+				port@0 {
+					reg = <0>;
+					camsv3_in: endpoint {
+						remote-endpoint = <&seninf_out4>;
+					};
+				};
+			};
 		};
 
 		camsys_rawa: clock-controller@1a04f000 {
@@ -1364,11 +1484,45 @@
 
 		seninf: seninf@1a004000 {
 			compatible = "mediatek,mt6833-seninf";
-			reg = <0 0x1a004000 0 0x10000>;
-			clocks = <&topckgen CLK_TOP_SENINF_SEL>;
-			clock-names = "seninf";
+			reg = <0 0x1a004000 0 0xa000>;
+			interrupts = <GIC_SPI 226 IRQ_TYPE_LEVEL_LOW>;
+			clocks = <&camsys_main CLK_CAM_M_SENINF>,
+				 <&topckgen CLK_TOP_SENINF_SEL>,
+				 <&topckgen CLK_TOP_CAM_SEL>;
+			clock-names = "cam_seninf", "top_mux_seninf",
+				      "top_cam_sel";
 			power-domains = <&spm MT6833_POWER_DOMAIN_CAM>;
 			status = "disabled";
+
+			ports {
+				#address-cells = <1>;
+				#size-cells = <0>;
+
+				port@0 {
+					reg = <0>;
+					phys = <&mipi_csi_rx>;
+					seninf_in1: endpoint {
+						bus-type = <4>;	/* MEDIA_BUS_TYPE_CSI2_DPHY */
+						clock-lanes = <2>;
+						data-lanes = <1 3 0 4>;
+						remote-endpoint = <&s5kjn1_out>;
+					};
+				};
+				port@1 { reg = <1>; };
+				port@2 { reg = <2>; };
+				port@3 { reg = <3>; };
+				port@4 {
+					reg = <4>;
+					seninf_out4: endpoint {
+						remote-endpoint = <&camsv3_in>;
+					};
+				};
+				port@5 { reg = <5>; };
+				port@6 { reg = <6>; };
+				port@7 { reg = <7>; };
+				port@8 { reg = <8>; };
+				port@9 { reg = <9>; };
+			};
 		};
 
 		mipi_csi_rx: phy@11c80000 {
@@ -1474,6 +1628,23 @@
 			 * of falling back, and UFS could never probe.
 			 */
 			vcc-supply = <&mt6359_vemc_1_ldo_reg>;
+			status = "disabled";
+		};
+
+		pwm: pwm@10048000 {
+			compatible = "mediatek,mt6833-pwm";
+			reg = <0 0x10048000 0 0x1000>;
+			#pwm-cells = <2>;
+			interrupts = <GIC_SPI 210 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&topckgen CLK_TOP_PWM_SEL>,
+				 <&infracfg_ao CLK_IFRAO_PWM>,
+				 <&infracfg_ao CLK_IFRAO_PWM1>,
+				 <&infracfg_ao CLK_IFRAO_PWM2>,
+				 <&infracfg_ao CLK_IFRAO_PWM3>,
+				 <&infracfg_ao CLK_IFRAO_PWM4>,
+				 <&infracfg_ao CLK_IFRAO_PWM_HCLK>;
+			clock-names = "top", "main", "pwm1", "pwm2", "pwm3",
+				      "pwm4", "hclk";
 			status = "disabled";
 		};
 
