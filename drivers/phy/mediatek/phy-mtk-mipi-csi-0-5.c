@@ -438,7 +438,6 @@ static int mtk_mipi_phy_power_on(struct phy *phy)
 	mtk_phy_update_field(base + MIPI_RX_ANA00_CSIXA, RG_CSIXA_BG_LPF_EN, 1);
 	mtk_phy_update_field(base + CSIXB_OFFSET + MIPI_RX_ANA00_CSIXA, RG_CSIXA_BG_LPF_EN, 1);
 
-	return 0;
 	if (port->mt6833) {
 		unsigned int i;
 
@@ -447,6 +446,7 @@ static int mtk_mipi_phy_power_on(struct phy *phy)
 			       base + mt6833_phy_golden[i].off);
 	}
 
+	return 0;
 }
 
 

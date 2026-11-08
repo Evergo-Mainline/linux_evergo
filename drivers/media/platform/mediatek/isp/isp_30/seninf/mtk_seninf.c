@@ -1701,6 +1701,8 @@ static ssize_t mtk_seninf_stream_write(struct file *file,
 			return -ENODEV;
 		}
 		phy_power_on(input->phy);
+		msleep(50);
+		mtk_csi_phy_mt6833_apply_vendor(input->phy);
 		mtk_seninf_mt6833_start(priv, input, &priv->muxes[0]);
 		dev_info(priv->dev, "debugfs: seninf started on port0/mux0\n");
 	} else {

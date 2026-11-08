@@ -938,6 +938,17 @@ static int s5kjn1_enable_streams(struct v4l2_subdev *sd,
 	if (ret)
 		goto error;
 
+	{
+		u64 mode = 0, chip = 0;
+		int r2 = 0;
+
+		cci_read(s5kjn1->regmap, S5KJN1_REG_CTRL_MODE, &mode, &r2);
+		cci_read(s5kjn1->regmap, CCI_REG16(0x0000), &chip, &r2);
+		dev_info(s5kjn1->dev,
+			 "streaming on: ctrl_mode=%04x chip=%04x read_ret=%d\n",
+			 mode, chip, r2);
+	}
+
 	return 0;
 
 error:

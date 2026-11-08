@@ -1413,7 +1413,9 @@
 			interrupts = <GIC_SPI 320 IRQ_TYPE_LEVEL_HIGH>;
 			power-domains = <&spm MT6833_POWER_DOMAIN_CAM_RAWA>,
 					<&spm MT6833_POWER_DOMAIN_CAM_RAWB>;
-			iommus = <&iommu 0x200>;
+			/* larb16 port0 (imgo) + port2 (cqi: the CQ descriptor ring) */
+			iommus = <&iommu 0x200>, <&iommu 0x202>;
+			mboxes = <&gce 12 8 0>;
 			clocks = <&camsys_main CLK_CAM_M_CAM>,
 				 <&camsys_main CLK_CAM_M_CAMTG>,
 				 <&camsys_main CLK_CAM_M_LARB13>,
