@@ -1362,6 +1362,16 @@
 			power-domains = <&spm MT6833_POWER_DOMAIN_CAM_RAWB>;
 		};
 
+		mipi_csi_rx: phy@11c80000 {
+			compatible = "mediatek,mt6833-csi-rx";
+			reg = <0 0x11c80000 0 0x10000>;
+			#phy-cells = <0>;
+			num-lanes = <4>;
+			phy-type = <PHY_TYPE_DPHY>;
+			power-domains = <&spm MT6833_POWER_DOMAIN_CAM>;
+			status = "disabled";
+		};
+
 		ipesys: clock-controller@1b000000 {
 			compatible = "mediatek,mt6833-ipesys", "syscon";
 			reg = <0 0x1b000000 0 0x1000>;

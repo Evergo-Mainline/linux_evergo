@@ -276,6 +276,7 @@ static int mtk_mipi_cdphy_probe(struct platform_device *pdev)
 
 static const struct of_device_id mtk_mipi_cdphy_of_match[] = {
 	{ .compatible = "mediatek,mt8365-csi-rx" },
+	{ .compatible = "mediatek,mt6833-csi-rx" },
 	{ /* sentinel */},
 };
 MODULE_DEVICE_TABLE(of, mtk_mipi_cdphy_of_match);
