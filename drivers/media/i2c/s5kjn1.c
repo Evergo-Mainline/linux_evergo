@@ -11,6 +11,8 @@
 #include <linux/units.h>
 #include <media/v4l2-cci.h>
 #include <media/v4l2-ctrls.h>
+#include <linux/debugfs.h>
+#include <linux/uaccess.h>
 #include <media/v4l2-device.h>
 #include <media/v4l2-fwnode.h>
 
@@ -961,6 +963,38 @@ static int s5kjn1_disable_streams(struct v4l2_subdev *sd,
 	return ret;
 }
 
+static ssize_t s5kjn1_dbg_stream_write(struct file *file,
+				       const char __user *ubuf,
+				       size_t count, loff_t *ppos)
+{
+	struct s5kjn1 *s5kjn1 = file->private_data;
+	char buf[8];
+	int on, ret;
+
+	if (count >= sizeof(buf))
+		return -EINVAL;
+	if (copy_from_user(buf, ubuf, count))
+		return -EFAULT;
+	buf[count] = '\0';
+	if (kstrtoint(buf, 10, &on))
+		return -EINVAL;
+
+	if (on)
+		ret = s5kjn1_enable_streams(&s5kjn1->sd, NULL, 0, BIT(0));
+	else
+		ret = s5kjn1_disable_streams(&s5kjn1->sd, NULL, 0, BIT(0));
+	if (ret)
+		return ret;
+	return count;
+}
+
+static const struct file_operations s5kjn1_dbg_stream_fops = {
+	.owner = THIS_MODULE,
+	.open = simple_open,
+	.write = s5kjn1_dbg_stream_write,
+	.llseek = default_llseek,
+};
+
 static u32 s5kjn1_get_format_code(struct s5kjn1 *s5kjn1)
 {
 	unsigned int i;
@@ -1423,6 +1457,13 @@ static int s5kjn1_probe(struct i2c_client *client)
 	pm_runtime_set_autosuspend_delay(s5kjn1->dev, 1000);
 	pm_runtime_use_autosuspend(s5kjn1->dev);
 	pm_runtime_idle(s5kjn1->dev);
+
+	{
+		struct dentry *dir = debugfs_create_dir("s5kjn1", NULL);
+
+		debugfs_create_file("stream", 0600, dir, s5kjn1,
+				    &s5kjn1_dbg_stream_fops);
+	}
 
 	return 0;
 
