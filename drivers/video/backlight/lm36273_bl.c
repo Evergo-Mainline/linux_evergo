@@ -37,6 +37,11 @@ struct lm36273 {
 	struct mutex lock;	/* serialises register access */
 	bool bias_on;
 	bool bl_on;
+	/* panel-specific calibration from DT */
+	u32 vpos;		/* bias positive register value (0x1e = 5.5V) */
+	u32 vneg;		/* bias negative register value */
+	const u32 *levels;	/* optional brightness-levels table */
+	int num_levels;
 };
 
 static int lm36273_write(struct lm36273 *lm, u8 reg, u8 val)
@@ -108,8 +113,8 @@ static int lm36273_update_status(struct backlight_device *bd)
 		/* vendor lm36273_bl_bias_conf() + lm36273_bias_enable(1, 1) */
 		lm36273_write(lm, LM36273_DISP_BC1, 0x38);	/* disable PWM */
 		lm36273_write(lm, LM36273_DISP_BC2, 0x85);
-		lm36273_write(lm, LM36273_DISP_BIAS_VPOS, 0x1e);	/* +5.5 V */
-		lm36273_write(lm, LM36273_DISP_BIAS_VNEG, 0x1e);	/* -5.5 V */
+		lm36273_write(lm, LM36273_DISP_BIAS_VPOS, lm->vpos);
+		lm36273_write(lm, LM36273_DISP_BIAS_VNEG, lm->vneg);
 		lm36273_bias_enable(lm);
 	}
 
@@ -120,8 +125,18 @@ static int lm36273_update_status(struct backlight_device *bd)
 		return 0;
 	}
 
-	/* the vendor scales the 0..255 level onto the chip's 0..180 range */
-	level = brightness * 180 / LM36273_MAX_BRIGHTNESS;
+	/*
+	 * Optional panel calibration table (DT "brightness-levels"): each
+	 * entry is the chip backlight level (0..180).  Without a table the
+	 * vendor's linear 0..255 -> 0..180 scaling is used.
+	 */
+	if (lm->levels) {
+		int idx = clamp_t(int, brightness, 0, lm->num_levels - 1);
+
+		level = clamp_t(u32, lm->levels[idx], 0, 180);
+	} else {
+		level = brightness * 180 / LM36273_MAX_BRIGHTNESS;
+	}
 	lm36273_write(lm, LM36273_DISP_BB_LSB, level & 0x7);
 	lm36273_write(lm, LM36273_DISP_BB_MSB, (level >> 3) & 0xff);
 	lm36273_bl_on(lm);
@@ -141,7 +156,7 @@ static int lm36273_probe(struct i2c_client *client)
 		.max_brightness = LM36273_MAX_BRIGHTNESS,
 	};
 	struct lm36273 *lm;
-	int ret;
+	int ret, n;
 
 	lm = devm_kzalloc(&client->dev, sizeof(*lm), GFP_KERNEL);
 	if (!lm)
@@ -149,6 +164,30 @@ static int lm36273_probe(struct i2c_client *client)
 
 	lm->client = client;
 	mutex_init(&lm->lock);
+
+	/* panel calibration knobs (defaults match the vendor sequence) */
+	lm->vpos = 0x1e;
+	lm->vneg = 0x1e;
+	device_property_read_u32(&client->dev, "vpos", &lm->vpos);
+	device_property_read_u32(&client->dev, "vneg", &lm->vneg);
+
+	n = device_property_count_u32(&client->dev, "brightness-levels");
+	if (n > 0 && n <= 256) {
+		u32 *levels = devm_kcalloc(&client->dev, n, sizeof(u32),
+					   GFP_KERNEL);
+
+		if (levels &&
+		    !device_property_read_u32_array(&client->dev,
+						    "brightness-levels",
+						    levels, n)) {
+			lm->levels = levels;
+			lm->num_levels = n;
+			props.max_brightness = n - 1;
+			dev_info(&client->dev,
+				 "using %d-entry brightness calibration table\n",
+				 n);
+		}
+	}
 
 	/*
 	 * Bring-up note: the LM36273 (and the panel) sits on the PMIC
