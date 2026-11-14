@@ -153,6 +153,44 @@ static const struct scpsys_domain_data scpsys_domain_data_mt6833[] = {
 				    MT8192_TOP_AXI_PROT_EN_2_STA1),
 		},
 	},
+	/*
+	 * Camera power domains.  Register layout from the vendor
+	 * clk-mt6833-pg.c: CAM_PWR_CON 0x035c, CAM_RAWA 0x0360,
+	 * CAM_RAWB 0x0364; status bits 23/24/25, SRAM PDN bit 8 /
+	 * ack bit 12.  Bus protection is not modelled yet (the vendor
+	 * uses INFRA_TOPAXI_PROTECTEN_MM/VDNR, not yet in mainline);
+	 * keep the domains on once powered to avoid tearing them down.
+	 */
+	[MT6833_POWER_DOMAIN_CAM] = {
+		.name = "cam",
+		.sta_mask = BIT(23),
+		.ctl_offs = 0x035c,
+		.pwr_sta_offs = MT6833_PWR_STA_OFFSET,
+		.pwr_sta2nd_offs = MT6833_PWR_STA2ND_OFFSET,
+		.sram_pdn_bits = GENMASK(8, 8),
+		.sram_pdn_ack_bits = GENMASK(12, 12),
+		.caps = MTK_SCPD_KEEP_DEFAULT_OFF,
+	},
+	[MT6833_POWER_DOMAIN_CAM_RAWA] = {
+		.name = "cam_rawa",
+		.sta_mask = BIT(24),
+		.ctl_offs = 0x0360,
+		.pwr_sta_offs = MT6833_PWR_STA_OFFSET,
+		.pwr_sta2nd_offs = MT6833_PWR_STA2ND_OFFSET,
+		.sram_pdn_bits = GENMASK(8, 8),
+		.sram_pdn_ack_bits = GENMASK(12, 12),
+		.caps = MTK_SCPD_KEEP_DEFAULT_OFF,
+	},
+	[MT6833_POWER_DOMAIN_CAM_RAWB] = {
+		.name = "cam_rawb",
+		.sta_mask = BIT(25),
+		.ctl_offs = 0x0364,
+		.pwr_sta_offs = MT6833_PWR_STA_OFFSET,
+		.pwr_sta2nd_offs = MT6833_PWR_STA2ND_OFFSET,
+		.sram_pdn_bits = GENMASK(8, 8),
+		.sram_pdn_ack_bits = GENMASK(12, 12),
+		.caps = MTK_SCPD_KEEP_DEFAULT_OFF,
+	},
 };
 
 static const struct scpsys_soc_data mt6833_scpsys_data = {

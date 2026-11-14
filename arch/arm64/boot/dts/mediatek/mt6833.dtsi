@@ -51,17 +51,17 @@
 
 			trips {
 				cpu0_passive0: trip-cpu0_passive0 {
-					temperature = <80000>;
+					temperature = <85000>;
 					hysteresis = <2000>;
 					type = "passive";
 				};
 				cpu0_passive1: trip-cpu0_passive1 {
-					temperature = <90000>;
+					temperature = <95000>;
 					hysteresis = <2000>;
 					type = "passive";
 				};
 				cpu0_passive2: trip-cpu0_passive2 {
-					temperature = <100000>;
+					temperature = <105000>;
 					hysteresis = <2000>;
 					type = "passive";
 				};
@@ -93,17 +93,17 @@
 
 			trips {
 				cpu1_passive0: trip-cpu1_passive0 {
-					temperature = <80000>;
+					temperature = <85000>;
 					hysteresis = <2000>;
 					type = "passive";
 				};
 				cpu1_passive1: trip-cpu1_passive1 {
-					temperature = <90000>;
+					temperature = <95000>;
 					hysteresis = <2000>;
 					type = "passive";
 				};
 				cpu1_passive2: trip-cpu1_passive2 {
-					temperature = <100000>;
+					temperature = <105000>;
 					hysteresis = <2000>;
 					type = "passive";
 				};
@@ -135,17 +135,17 @@
 
 			trips {
 				cpu2_passive0: trip-cpu2_passive0 {
-					temperature = <80000>;
+					temperature = <85000>;
 					hysteresis = <2000>;
 					type = "passive";
 				};
 				cpu2_passive1: trip-cpu2_passive1 {
-					temperature = <90000>;
+					temperature = <95000>;
 					hysteresis = <2000>;
 					type = "passive";
 				};
 				cpu2_passive2: trip-cpu2_passive2 {
-					temperature = <100000>;
+					temperature = <105000>;
 					hysteresis = <2000>;
 					type = "passive";
 				};
@@ -177,17 +177,17 @@
 
 			trips {
 				cpu3_passive0: trip-cpu3_passive0 {
-					temperature = <80000>;
+					temperature = <85000>;
 					hysteresis = <2000>;
 					type = "passive";
 				};
 				cpu3_passive1: trip-cpu3_passive1 {
-					temperature = <90000>;
+					temperature = <95000>;
 					hysteresis = <2000>;
 					type = "passive";
 				};
 				cpu3_passive2: trip-cpu3_passive2 {
-					temperature = <100000>;
+					temperature = <105000>;
 					hysteresis = <2000>;
 					type = "passive";
 				};
@@ -219,17 +219,17 @@
 
 			trips {
 				cpu4_passive0: trip-cpu4_passive0 {
-					temperature = <80000>;
+					temperature = <85000>;
 					hysteresis = <2000>;
 					type = "passive";
 				};
 				cpu4_passive1: trip-cpu4_passive1 {
-					temperature = <90000>;
+					temperature = <95000>;
 					hysteresis = <2000>;
 					type = "passive";
 				};
 				cpu4_passive2: trip-cpu4_passive2 {
-					temperature = <100000>;
+					temperature = <105000>;
 					hysteresis = <2000>;
 					type = "passive";
 				};
@@ -261,17 +261,17 @@
 
 			trips {
 				cpu5_passive0: trip-cpu5_passive0 {
-					temperature = <80000>;
+					temperature = <85000>;
 					hysteresis = <2000>;
 					type = "passive";
 				};
 				cpu5_passive1: trip-cpu5_passive1 {
-					temperature = <90000>;
+					temperature = <95000>;
 					hysteresis = <2000>;
 					type = "passive";
 				};
 				cpu5_passive2: trip-cpu5_passive2 {
-					temperature = <100000>;
+					temperature = <105000>;
 					hysteresis = <2000>;
 					type = "passive";
 				};
@@ -303,12 +303,12 @@
 
 			trips {
 				gpu_passive0: trip-gpu_passive0 {
-					temperature = <80000>;
+					temperature = <85000>;
 					hysteresis = <2000>;
 					type = "passive";
 				};
 				gpu_passive1: trip-gpu_passive1 {
-					temperature = <90000>;
+					temperature = <95000>;
 					hysteresis = <2000>;
 					type = "passive";
 				};
@@ -326,7 +326,7 @@
 				};
 				gpu_map1: map-gpu_map1 {
 					trip = <&gpu_passive1>;
-					cooling-device = <&gpu 2 7>;
+					cooling-device = <&gpu 2 6>;
 				};
 			};
 		};
@@ -336,12 +336,12 @@
 
 			trips {
 				gpu1_passive0: trip-gpu1_passive0 {
-					temperature = <80000>;
+					temperature = <85000>;
 					hysteresis = <2000>;
 					type = "passive";
 				};
 				gpu1_passive1: trip-gpu1_passive1 {
-					temperature = <90000>;
+					temperature = <95000>;
 					hysteresis = <2000>;
 					type = "passive";
 				};
@@ -359,7 +359,7 @@
 				};
 				gpu1_map1: map-gpu1_map1 {
 					trip = <&gpu1_passive1>;
-					cooling-device = <&gpu 2 7>;
+					cooling-device = <&gpu 2 6>;
 				};
 			};
 		};
@@ -369,12 +369,12 @@
 
 			trips {
 				soc_passive0: trip-soc_passive0 {
-					temperature = <85000>;
+					temperature = <90000>;
 					hysteresis = <2000>;
 					type = "passive";
 				};
 				soc_passive1: trip-soc_passive1 {
-					temperature = <95000>;
+					temperature = <100000>;
 					hysteresis = <2000>;
 					type = "passive";
 				};
@@ -423,6 +423,12 @@
 		#address-cells = <1>;
 		#size-cells = <0>;
 
+		/*
+		 * The two clusters are exposed as one MC domain so lscpu /
+		 * gnome-system-monitor report 8 physical cores in one socket;
+		 * capacity-dmips-mhz still marks cpu6/cpu7 as the big cores.
+		 * (Two clusters would show as two sockets of 6+2 cores.)
+		 */
 		cpu-map {
 			cluster0 {
 				core0 {
@@ -448,14 +454,12 @@
 				core5 {
 					cpu = <&cpu5>;
 				};
-			};
 
-			cluster1 {
-				core0 {
+				core6 {
 					cpu = <&cpu6>;
 				};
 
-				core1 {
+				core7 {
 					cpu = <&cpu7>;
 				};
 			};
@@ -1337,22 +1341,200 @@
 			#clock-cells=<1>;
 		};
 
+		iommu: iommu@14016000 {
+			compatible = "mediatek,mt6833-m4u";
+			reg = <0 0x14016000 0 0x1000>;
+			interrupts = <GIC_SPI 271 IRQ_TYPE_LEVEL_HIGH>;
+			mediatek,larbs = <&smi_larb13 &smi_larb14>,
+					 <&smi_larb16 &smi_larb17>;
+			#iommu-cells = <1>;
+		};
+
+		smi_common: smi@14002000 {
+			compatible = "mediatek,mt6779-smi-common";
+			reg = <0 0x14002000 0 0x1000>;
+			clocks = <&mmsys CLK_MM_SMI_COMMON>,
+				 <&mmsys CLK_MM_SMI_COMMON>,
+				 <&mmsys CLK_MM_SMI_GALS>,
+				 <&mmsys CLK_MM_SMI_GALS>;
+			clock-names = "apb", "smi", "gals0", "gals1";
+		};
+
+		smi_larb13: smi-larb@1a001000 {
+			compatible = "mediatek,mt6779-smi-larb";
+			reg = <0 0x1a001000 0 0x1000>;
+			mediatek,smi = <&smi_common>;
+			mediatek,larb-id = <13>;
+			clocks = <&camsys_main CLK_CAM_M_LARB13>,
+				 <&camsys_main CLK_CAM_M_LARB13>;
+			clock-names = "apb", "smi";
+		};
+
+		smi_larb14: smi-larb@1a002000 {
+			compatible = "mediatek,mt6779-smi-larb";
+			reg = <0 0x1a002000 0 0x1000>;
+			mediatek,smi = <&smi_common>;
+			mediatek,larb-id = <14>;
+			clocks = <&camsys_main CLK_CAM_M_LARB14>,
+				 <&camsys_main CLK_CAM_M_LARB14>;
+			clock-names = "apb", "smi";
+		};
+
+		smi_larb16: smi-larb@1a00f000 {
+			compatible = "mediatek,mt6779-smi-larb";
+			reg = <0 0x1a00f000 0 0x1000>;
+			mediatek,smi = <&smi_common>;
+			mediatek,larb-id = <16>;
+			clocks = <&camsys_rawa CLK_CAM_RA_LARBX>,
+				 <&camsys_rawa CLK_CAM_RA_LARBX>;
+			clock-names = "apb", "smi";
+		};
+
+		smi_larb17: smi-larb@1a010000 {
+			compatible = "mediatek,mt6779-smi-larb";
+			reg = <0 0x1a010000 0 0x1000>;
+			mediatek,smi = <&smi_common>;
+			mediatek,larb-id = <17>;
+			clocks = <&camsys_rawb CLK_CAM_RB_LARBX>,
+				 <&camsys_rawb CLK_CAM_RB_LARBX>;
+			clock-names = "apb", "smi";
+		};
+
 		camsys_main: clock-controller@1a000000 {
 			compatible = "mediatek,mt6833-camsys-main", "syscon";
 			reg = <0 0x1a000000 0 0x1000>;
 			#clock-cells=<1>;
+			power-domains = <&spm MT6833_POWER_DOMAIN_CAM>;
+		};
+
+		camraw: camraw@1a030000 {
+			compatible = "mediatek,mt6833-camraw";
+			reg = <0 0x1a030000 0 0x8000>;
+			interrupts = <GIC_SPI 320 IRQ_TYPE_LEVEL_HIGH>;
+			power-domains = <&spm MT6833_POWER_DOMAIN_CAM_RAWA>,
+					<&spm MT6833_POWER_DOMAIN_CAM_RAWB>;
+			/* larb16 port0 (imgo) + port2 (cqi: the CQ descriptor ring) */
+			iommus = <&iommu 0x200>, <&iommu 0x202>;
+			mboxes = <&gce 12 8 0>;
+			clocks = <&camsys_main CLK_CAM_M_CAM>,
+				 <&camsys_main CLK_CAM_M_CAMTG>,
+				 <&camsys_main CLK_CAM_M_LARB13>,
+				 <&camsys_main CLK_CAM_M_LARB14>,
+				 <&camsys_rawa CLK_CAM_RA_LARBX>,
+				 <&camsys_rawa CLK_CAM_RA_CAM>,
+				 <&camsys_rawa CLK_CAM_RA_CAMTG>,
+				 <&camsys_rawb CLK_CAM_RB_LARBX>,
+				 <&camsys_rawb CLK_CAM_RB_CAM>,
+				 <&camsys_rawb CLK_CAM_RB_CAMTG>;
+			clock-names = "m_cam", "m_camtg", "m_larb13", "m_larb14",
+				      "ra_larbx", "ra_cam", "ra_camtg",
+				      "rb_larbx", "rb_cam", "rb_camtg";
+			status = "disabled";
+		};
+
+		camsv3: camsv@1a092000 {
+			compatible = "mediatek,mt6833-camsv";
+			reg = <0 0x1a092000 0 0x1000>;
+			interrupts = <GIC_SPI 327 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&camsys_main CLK_CAM_M_CAM>,
+				 <&camsys_main CLK_CAM_M_CAMTG>,
+				 <&camsys_main CLK_CAM_M_CAMSV3>,
+				 <&camsys_main CLK_CAM_M_CAMSV1>,
+				 <&camsys_main CLK_CAM_M_LARB13>,
+				 <&camsys_main CLK_CAM_M_LARB14>,
+				 <&camsys_main CLK_CAM_M_CCU_GALS>,
+				 <&camsys_main CLK_CAM_M_CAM2MM_GALS>;
+			clock-names = "camsys_cam_cgpdn",
+				      "camsys_camtg_cgpdn",
+				      "camsys_camsv",
+				      "camsys_camsv1",
+				      "camsys_larb13",
+				      "camsys_larb14",
+				      "camsys_ccu_gals",
+				      "camsys_cam2mm_gals";
+			mediatek,camsys = <&camsys_main>;
+			mediatek,infracfg = <&infracfg_ao>;
+			power-domains = <&spm MT6833_POWER_DOMAIN_CAM>;
+			iommus = <&iommu 0x200>;
+			status = "disabled";
+
+			ports {
+				#address-cells = <1>;
+				#size-cells = <0>;
+				port@0 {
+					reg = <0>;
+					camsv3_in: endpoint {
+						remote-endpoint = <&seninf_out4>;
+					};
+				};
+			};
 		};
 
 		camsys_rawa: clock-controller@1a04f000 {
 			compatible = "mediatek,mt6833-camsys-rawa", "syscon";
 			reg = <0 0x1a04f000 0 0x1000>;
 			#clock-cells=<1>;
+			power-domains = <&spm MT6833_POWER_DOMAIN_CAM_RAWA>;
 		};
 
 		camsys_rawb: clock-controller@1a06f000 {
 			compatible = "mediatek,mt6833-camsys-rawb", "syscon";
 			reg = <0 0x1a06f000 0 0x1000>;
 			#clock-cells=<1>;
+			power-domains = <&spm MT6833_POWER_DOMAIN_CAM_RAWB>;
+		};
+
+		seninf: seninf@1a004000 {
+			compatible = "mediatek,mt6833-seninf";
+			reg = <0 0x1a004000 0 0xa000>;
+			interrupts = <GIC_SPI 226 IRQ_TYPE_LEVEL_LOW>;
+			clocks = <&camsys_main CLK_CAM_M_SENINF>,
+				 <&topckgen CLK_TOP_SENINF_SEL>,
+				 <&topckgen CLK_TOP_CAM_SEL>;
+			clock-names = "cam_seninf", "top_mux_seninf",
+				      "top_cam_sel";
+			power-domains = <&spm MT6833_POWER_DOMAIN_CAM>;
+			status = "disabled";
+
+			ports {
+				#address-cells = <1>;
+				#size-cells = <0>;
+
+				port@0 {
+					reg = <0>;
+					phys = <&mipi_csi_rx>;
+					seninf_in1: endpoint {
+						bus-type = <4>;	/* MEDIA_BUS_TYPE_CSI2_DPHY */
+						clock-lanes = <2>;
+						data-lanes = <1 3 0 4>;
+						remote-endpoint = <&s5kjn1_out>;
+					};
+				};
+				port@1 { reg = <1>; };
+				port@2 { reg = <2>; };
+				port@3 { reg = <3>; };
+				port@4 {
+					reg = <4>;
+					seninf_out4: endpoint {
+						remote-endpoint = <&camsv3_in>;
+					};
+				};
+				port@5 { reg = <5>; };
+				port@6 { reg = <6>; };
+				port@7 { reg = <7>; };
+				port@8 { reg = <8>; };
+				port@9 { reg = <9>; };
+			};
+		};
+
+		mipi_csi_rx: phy@11c80000 {
+			compatible = "mediatek,mt6833-csi-rx";
+			reg = <0 0x11c80000 0 0x10000>;
+			#phy-cells = <0>;
+			num-lanes = <4>;
+			phy-type = <PHY_TYPE_DPHY>;
+			power-domains = <&spm MT6833_POWER_DOMAIN_CAM>;
+			status = "disabled";
 		};
 
 		ipesys: clock-controller@1b000000 {
@@ -1448,6 +1630,23 @@
 			 * of falling back, and UFS could never probe.
 			 */
 			vcc-supply = <&mt6359_vemc_1_ldo_reg>;
+			status = "disabled";
+		};
+
+		pwm: pwm@10048000 {
+			compatible = "mediatek,mt6833-pwm";
+			reg = <0 0x10048000 0 0x1000>;
+			#pwm-cells = <2>;
+			interrupts = <GIC_SPI 210 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&topckgen CLK_TOP_PWM_SEL>,
+				 <&infracfg_ao CLK_IFRAO_PWM>,
+				 <&infracfg_ao CLK_IFRAO_PWM1>,
+				 <&infracfg_ao CLK_IFRAO_PWM2>,
+				 <&infracfg_ao CLK_IFRAO_PWM3>,
+				 <&infracfg_ao CLK_IFRAO_PWM4>,
+				 <&infracfg_ao CLK_IFRAO_PWM_HCLK>;
+			clock-names = "top", "main", "pwm1", "pwm2", "pwm3",
+				      "pwm4", "hclk";
 			status = "disabled";
 		};
 

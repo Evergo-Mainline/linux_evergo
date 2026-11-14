@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: GPL-2.0-only
+config VIDEO_MTK_SENINF
+	tristate "MediaTek SENINF (MIPI CSI-2 receiver) bring-up"
+	depends on MEDIA_SUPPORT && VIDEO_DEV
+	depends on ARCH_MEDIATEK || COMPILE_TEST
+	help
+	  Minimal bring-up driver for the MediaTek SENINF block (the MIPI
+	  CSI-2 receiver crossbar in front of CAM/CAMSV).  It maps the
+	  register window, enables the SENINF clock and exposes the
+	  registers through debugfs so the capture sequence can be
+	  developed without rebuilding the kernel for every peek/poke.

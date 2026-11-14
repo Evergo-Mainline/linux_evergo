@@ -22,6 +22,7 @@
 #include <dt-bindings/interrupt-controller/irq.h>
 #include <dt-bindings/iio/adc/mediatek,mt6359-auxadc.h>
 #include <dt-bindings/leds/common.h>
+#include <dt-bindings/usb/pd.h>
 #include <dt-bindings/pinctrl/mediatek,mt6833-pinfunc.h>
 
 #include "mt6833.dtsi"
@@ -761,6 +762,12 @@
 		opp-700000000 { opp-hz = /bits/ 64 <700000000>; opp-microvolt = <781250>; };
 		opp-790000000 { opp-hz = /bits/ 64 <790000000>; opp-microvolt = <781250>; };
 		opp-880000000 { opp-hz = /bits/ 64 <880000000>; opp-microvolt = <781250>; };
+		/* vendor sign-off: 950 MHz for this GPU segment */
+		opp-950000000 { opp-hz = /bits/ 64 <950000000>; opp-microvolt = <781250>; };
+		/* sign-off 1000 MHz; needs frequency hopping on real vendor firmware */
+		opp-1000000000 { opp-hz = /bits/ 64 <1000000000>; opp-microvolt = <800000>; };
+		/* sign-off max; 850 mV, right at the MFGPLL PCW limit */
+		opp-1068000000 { opp-hz = /bits/ 64 <1068000000>; opp-microvolt = <850000>; };
 	};
 };
 
@@ -790,9 +797,10 @@
 };
 
 /*
- * Hardware keys: the MT6359 PMIC provides KEY_POWER and (on this board) the
- * volume-down button through its "home" key; volume-up is wired to the SoC
- * keypad matrix (single key, KPCOL0/1), as on the a22x MT6833 port.
+ * Hardware keys: the MT6359 PMIC provides KEY_POWER and the volume-up button
+ * through its "home" key; volume-down is wired to the SoC keypad matrix
+ * (single key, KPCOL0/1).  The first version of this node had the two volume
+ * keys swapped, so the volume up/down buttons acted the wrong way round.
  */
 &pmic {
 	keys {
@@ -804,7 +812,7 @@
 		};
 
 		home-key {
-			linux,keycodes = <114>;		/* KEY_VOLUMEDOWN */
+			linux,keycodes = <115>;		/* KEY_VOLUMEUP */
 		};
 	};
 };
@@ -822,7 +830,7 @@
 		interrupts = <GIC_SPI 74 IRQ_TYPE_EDGE_RISING>;
 		clocks = <&keypad_clk>;
 		clock-names = "kpd";
-		linux,keymap = <0 115>;		/* rows*cols keycodes: (0,0)=none, (0,1)=KEY_VOLUMEUP */
+		linux,keymap = <0 114>;		/* rows*cols keycodes: (0,0)=none, (0,1)=KEY_VOLUMEDOWN */
 		keypad,num-rows = <1>;
 		keypad,num-columns = <2>;
 		debounce-delay-ms = <32>;
@@ -1046,6 +1054,31 @@
 /* Audio subsystem MTCMOS: needs the 26 MHz audio bus clocks while the
  * SRAM power-down acknowledgement is polled (vendor clk-mt6833-pg.c). */
 &spm {
+	/* Camera MTCMOS domains: keep the camera clock running while the SPM
+	 * polls the SRAM power-down acknowledgement (vendor clk-mt6833-pg.c). */
+	power-domain@MT6833_POWER_DOMAIN_CAM {
+		reg = <MT6833_POWER_DOMAIN_CAM>;
+		clocks = <&topckgen CLK_TOP_CAM_SEL>;
+		clock-names = "cam";
+		#power-domain-cells = <0>;
+	};
+
+	power-domain@MT6833_POWER_DOMAIN_CAM_RAWA {
+		reg = <MT6833_POWER_DOMAIN_CAM_RAWA>;
+		clocks = <&topckgen CLK_TOP_CAM_SEL>;
+		clock-names = "cam";
+		#power-domain-cells = <0>;
+	};
+
+	power-domain@MT6833_POWER_DOMAIN_CAM_RAWB {
+		reg = <MT6833_POWER_DOMAIN_CAM_RAWB>;
+		clocks = <&topckgen CLK_TOP_CAM_SEL>;
+		clock-names = "cam";
+		#power-domain-cells = <0>;
+	};
+};
+
+&spm {
 	power-domain@MT6833_POWER_DOMAIN_AUDIO {
 		reg = <MT6833_POWER_DOMAIN_AUDIO>;
 		clocks = <&topckgen CLK_TOP_AUD_INTBUS_SEL>,
@@ -1232,6 +1265,14 @@
 			bias-pull-up;
 		};
 	};
+
+	tcpc_irq_pins: tcpc-irq-pins {
+		pins-irq {
+			pinmux = <PINMUX_GPIO9__FUNC_GPIO9>;
+			input-enable;
+			bias-pull-up;
+		};
+	};
 };
 
 &soc {
@@ -1314,6 +1355,48 @@
 			mt6360_chg: charger {
 				compatible = "mediatek,mt6360-chg";
 				richtek,vinovp-microvolt = <6500000>;
+			};
+
+			/*
+			 * MT6360 Type-C/PD controller.  GPIO9 is PD_IRQB (GPIO10 is
+			 * the PMIC IRQB handled by the mfd).  The connector is kept
+			 * sink-only: the USB data path stays the NCM gadget, this
+			 * node only enables Type-C role detection and USB-PD
+			 * contract negotiation (5 V / 9 V sink PDOs).
+			 */
+			mt6360_tcpc: tcpc {
+				compatible = "mediatek,mt6360-tcpc";
+				interrupts-extended = <&pio 9 IRQ_TYPE_LEVEL_LOW>;
+				interrupt-names = "PD_IRQB";
+				pinctrl-names = "default";
+				pinctrl-0 = <&tcpc_irq_pins>;
+
+				connector {
+					compatible = "usb-c-connector";
+					label = "USB-C";
+					data-role = "device";
+					power-role = "sink";
+					try-power-role = "sink";
+					sink-pdos = <PDO_FIXED(5000, 2000,
+						PDO_FIXED_DUAL_ROLE |
+						PDO_FIXED_DATA_SWAP)
+						PDO_FIXED(9000, 2000,
+						PDO_FIXED_DUAL_ROLE |
+						PDO_FIXED_DATA_SWAP)>;
+					op-sink-microwatt = <10000000>;
+				};
+			};
+
+			regulator {
+				compatible = "mediatek,mt6360-regulator";
+
+				/* Vendor cam0 vcamio = MT6360 LDO2 (VTP), 1.8 V */
+				mt6360_ldo2: ldo2 {
+					regulator-name = "vtp";
+					regulator-min-microvolt = <1800000>;
+					regulator-max-microvolt = <1800000>;
+					regulator-always-on;
+				};
 			};
 
 			led-controller {
@@ -1670,36 +1753,54 @@
 			opp-hz = /bits/ 64 <2000000000>;
 			opp-microvolt = <993750>;
 		};
+
+		/* vendor B24G bin: A76 up to 2.4 GHz (EEM voltages + margin) */
+		opp-2118000000 {
+			opp-hz = /bits/ 64 <2118000000>;
+			opp-microvolt = <1010000>;
+		};
+		opp-2203000000 {
+			opp-hz = /bits/ 64 <2203000000>;
+			opp-microvolt = <1030000>;
+		};
+		opp-2306000000 {
+			opp-hz = /bits/ 64 <2306000000>;
+			opp-microvolt = <1060000>;
+		};
+		opp-2400000000 {
+			opp-hz = /bits/ 64 <2400000000>;
+			opp-microvolt = <1090000>;
+		};
 	};
 };
 
 /*
  * CPU rails (vendor mapping on MT6833): big cluster = VGPU11 + VSRAM_PROC1,
  * LITTLE + CCI = VPROC2 + VSRAM_PROC2. Cap them at the vendor Vproc/Vsram
- * ceiling (1.0 V) and keep them enabled; nothing changes until cpufreq asks
+ * ceiling (VPROC 1.2 V / VSRAM 1.25 V, needed by the 2.4 GHz OPPs) and keep them enabled; nothing changes until cpufreq asks
  * for an OPP, and they are never switched off behind the CPU's back.
  */
 &mt6359_vgpu11_buck_reg {
 	regulator-min-microvolt = <600000>;
-	regulator-max-microvolt = <1000000>;
+	regulator-max-microvolt = <1200000>;
 	regulator-always-on;
 };
 
 &mt6359_vproc2_buck_reg {
 	regulator-min-microvolt = <600000>;
-	regulator-max-microvolt = <1000000>;
+	regulator-max-microvolt = <1200000>;
 	regulator-always-on;
 };
 
 &mt6359_vsram_proc1_ldo_reg {
 	regulator-min-microvolt = <750000>;
-	regulator-max-microvolt = <1000000>;
+	regulator-max-microvolt = <1250000>;
 	regulator-always-on;
 };
 
 &mt6359_vsram_proc2_ldo_reg {
 	regulator-min-microvolt = <750000>;
-	regulator-max-microvolt = <1000000>;
+	regulator-max-microvolt = <1250000>;
 	regulator-always-on;
 };
 
@@ -1820,4 +1921,115 @@
 &mt6359_vcn33_2_ldo_reg {
 	regulator-min-microvolt = <3300000>;
 	regulator-max-microvolt = <3300000>;
+};
+
+/*
+ * Camera bring-up (M1): keep the external camera PMIC (WL2866D) enabled and
+ * release the cam0 reset so the sensor rails come up at boot.  WL2866D itself
+ * still needs its I2C init; this only validates power/I2C reachability.
+ */
+&pio {
+	wl2866d_en_hog: wl2866d-en-hog {
+		gpio-hog;
+		gpios = <59 0>;
+		output-high;
+		line-name = "wl2866d-en";
+	};
+};
+
+/* Camera M1: keep the sensor I/O rail (1.8 V) on; vcamio is disabled by default */
+&mt6359_vcamio_ldo_reg {
+	regulator-min-microvolt = <1800000>;
+	regulator-max-microvolt = <1800000>;
+	regulator-always-on;
+};
+
+/* Camera M2: CMMCLK0 on GPIO49 and the S5KJN1 sensor node */
+&pio {
+	cam0_mclk_pins: cam0-mclk-pins {
+		pins-mclk {
+			pinmux = <PINMUX_GPIO49__FUNC_CMMCLK0>;
+			drive-strength = <2>;
+		};
+	};
+	cam_mipi_sel: cam-mipi-sel {
+		pins-sel {
+			pinmux = <PINMUX_GPIO43__FUNC_GPIO43>;
+			slew-rate = <1>;
+			output-low;
+		};
+	};
+	cam0_rst_pins: cam0-rst-pins {
+		pins-rst {
+			pinmux = <PINMUX_GPIO54__FUNC_GPIO54>;
+			output-high;
+		};
+	};
+};
+
+&i2c2 {
+	status = "okay";
+	s5kjn1: camera@10 {
+		compatible = "samsung,s5kjn1";
+		/* vendor imgsensor tables store the 8-bit address (0x20 >> 1) */
+		reg = <0x10>;
+		reset-gpios = <&pio 54 GPIO_ACTIVE_LOW>;
+		vddio-supply = <&mt6360_ldo2>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&cam0_mclk_pins &cam0_rst_pins>;
+		clocks = <&topckgen CLK_TOP_CAMTG_SEL>;
+		assigned-clocks = <&topckgen CLK_TOP_CAMTG_SEL>;
+		assigned-clock-parents = <&topckgen CLK_TOP_UNIVPLL_192M_D8>;
+		assigned-clock-rates = <24000000>;
+		status = "okay";
+
+		port {
+			s5kjn1_out: endpoint {
+				data-lanes = <1 2 3 4>;
+				link-frequencies = /bits/ 64 <700000000>;
+			};
+		};
+	};
+};
+
+&mipi_csi_rx {
+	status = "okay";
+};
+
+&seninf {
+	pinctrl-names = "default";
+	pinctrl-0 = <&cam_mipi_sel>;
+	status = "okay";
+};
+
+&camsv3 {
+	status = "okay";
+};
+
+&camraw {
+	status = "okay";
+};
+
+&pio {
+	irtx_pwm_pins: irtx-pwm-pins {
+		pins-cmd-dat {
+			pinmux = <PINMUX_GPIO139__FUNC_PWM_2>;
+			output-high;
+			slew-rate = <1>;
+		};
+	};
+};
+
+&pwm {
+	status = "okay";
+};
+
+/ {
+	ir_tx: ir-tx {
+		compatible = "pwm-ir-tx";
+		pwms = <&pwm 2 26305>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&irtx_pwm_pins>;
+		status = "okay";
+	};
 };

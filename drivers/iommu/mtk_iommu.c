@@ -1428,10 +1428,12 @@ static int mtk_iommu_probe(struct platform_device *pdev)
 
 	ret = iommu_device_sysfs_add(&data->iommu, dev, NULL,
 				     "mtk-iommu.%pa", &ioaddr);
+	dev_info(dev, "probe: sysfs_add ret=%d\n", ret);
 	if (ret)
 		goto out_list_del;
 
 	ret = iommu_device_register(&data->iommu, &mtk_iommu_ops, dev);
+	dev_info(dev, "probe: device_register ret=%d\n", ret);
 	if (ret)
 		goto out_sysfs_remove;
 
@@ -1899,6 +1901,21 @@ static const struct mtk_iommu_plat_data mt8365_data = {
 	.larbid_remap	= {{0}, {1}, {2}, {3}, {4}, {5}}, /* Linear mapping. */
 };
 
+static const struct mtk_iommu_plat_data mt6833_data = {
+	.m4u_plat	= M4U_MT6779,
+	.flags		= HAS_SUB_COMM_2BITS | OUT_ORDER_WR_EN | WR_THROT_EN |
+			  MTK_IOMMU_TYPE_MM | PGTABLE_PA_35_EN,
+	.inv_sel_reg	= REG_MMU_INV_SEL_GEN2,
+	.banks_num	= 1,
+	.banks_enable	= {true},
+	.iova_region	= single_domain,
+	.iova_region_nr	= ARRAY_SIZE(single_domain),
+	/* Linear larb id mapping for the camera SMI larbs. */
+	.larbid_remap	= {{0}, {1}, {2}, {3}, {4}, {5}, {6}, {7},
+			   {8}, {9}, {10}, {11}, {12}, {13}, {14}, {15},
+			   {16}, {17}, {18}, {19}, {20}},
+};
+
 static const struct of_device_id mtk_iommu_of_ids[] = {
 	{ .compatible = "mediatek,mt2712-m4u", .data = &mt2712_data},
 	{ .compatible = "mediatek,mt6779-m4u", .data = &mt6779_data},
@@ -1919,6 +1936,7 @@ static const struct of_device_id mtk_iommu_of_ids[] = {
 	{ .compatible = "mediatek,mt8195-iommu-vdo",   .data = &mt8195_data_vdo},
 	{ .compatible = "mediatek,mt8195-iommu-vpp",   .data = &mt8195_data_vpp},
 	{ .compatible = "mediatek,mt8365-m4u", .data = &mt8365_data},
+	{ .compatible = "mediatek,mt6833-m4u", .data = &mt6833_data},
 	{}
 };
 MODULE_DEVICE_TABLE(of, mtk_iommu_of_ids);
